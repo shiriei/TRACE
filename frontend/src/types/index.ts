@@ -32,3 +32,5 @@ export interface PlannedModule {
   phase: string;
   description: string;
 }
+
+export * from './trace';

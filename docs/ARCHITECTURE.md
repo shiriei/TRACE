@@ -87,15 +87,25 @@ flowchart TD
 | **User** | Explorer setting their focus onto the physical world | Active |
 | **Exploration** | Walking, wandering, and observing immediate surroundings | Active |
 | **Observation** | Sensory notices (landmarks, flora, masonry, signs, sounds) | Planned |
-| **Trace Capture** | Logging raw observation, timestamp, and optional coordinates | Planned |
+| **Trace Capture** | Logging observation, field notes, coordinates, and media captures | Planned |
 | **Local AI Interpretation** | Gemma 3 4B categorizes sensory themes and extracts qualitative meaning | Planned |
-| **Personal Trace Map** | Traces render on a personalized, evolving local map | Planned |
+| **Personal Trace Map** | Traces render on a personalized, evolving local map | Active (Phase 1) |
 | **Pattern / Connection Discovery** | System discovers relationships between isolated traces | Planned |
 | **Next Exploration** | Generates adaptive, enigmatic clues for where to explore next | Planned |
 
 ---
 
-## 5. Privacy & Local-First Philosophy
+## 5. Field Journal Design & Media Replay Architecture
+
+TRACE is styled not as a dark technical GIS dashboard, but as a **whimsical illustrated field journal** for exploring the physical world:
+- **Warm Parchment & Botanical Palette**: Warm cream base, soft sage, muted honey, dust stone, and sepia inks.
+- **The Thing Discovered First**: Replaces "activity completion" with the actual observation (*"Three different bird calls near the same lane"*).
+- **Extensible Media Memory**: Supports local-first `photo`, `video`, `audio`, and `voice` capture items via `TraceMediaItem`.
+- **Enduring Replay Pipeline**: Designed so users can revisit field notes months later and review original reflections and media captures directly from the map or memory archive without cloud dependencies.
+
+---
+
+## 6. Privacy & Local-First Philosophy
 
 - **Zero Cloud Tracking**: All personal traces, timestamps, and coordinates are stored strictly on the user's device.
 - **Local AI Inference**: When AI capabilities are enabled in future phases, inference will communicate with a local LM Studio instance (`http://127.0.0.1:1234`). Personal traces will never be transmitted to third-party cloud APIs.
@@ -103,7 +113,7 @@ flowchart TD
 
 ---
 
-## 6. Repository Hygiene & Git Cleanliness
+## 7. Repository Hygiene & Git Cleanliness
 
 To preserve repository integrity and protect developer confidentiality, the following items **must never be committed to Git**:
 
