@@ -1005,9 +1005,246 @@ footer,
   margin: 4px 0;
 }
 
-.module-desc {
-  font-size: 0.9rem;
+/* ---------- Phase 2 Local AI Interpreter Card ---------- */
+.ai-interpreter-card {
+  max-width: 760px;
+  margin: 32px auto 0;
+  padding: 26px 24px;
+  text-align: left;
+}
+
+.ai-interpreter-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.ai-interpreter-badge {
+  font-family: var(--display);
+  font-size: 1.15rem;
+  color: var(--moss);
+}
+
+.ai-status-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.92rem;
   color: var(--ink-soft);
+  background: var(--paper-2);
+  padding: 3px 12px;
+  border-radius: 999px;
+  border: 1.5px solid var(--line);
+}
+
+.ai-status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.ai-section-heading {
+  font-family: var(--display);
+  font-size: 1.85rem;
+  font-weight: normal;
+  color: var(--ink);
+  margin: 0 0 4px;
+}
+
+.ai-interpreter-subtitle {
+  color: var(--ink-soft);
+  font-size: 1.05rem;
+  margin: 0 0 16px;
+  line-height: 1.35;
+}
+
+.ai-interpreter-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ai-input-label {
+  font-family: var(--display);
+  font-size: 1.3rem;
+  color: var(--ink);
+}
+
+.ai-textarea {
+  width: 100%;
+  border: 2px solid var(--line);
+  border-radius: 10px;
+  background: var(--paper);
+  padding: 12px 14px;
+  font-family: var(--body);
+  font-size: 1.15rem;
+  color: var(--ink);
+  outline: none;
+  resize: vertical;
+  min-height: 80px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.ai-textarea:focus {
+  border-color: var(--moss);
+  box-shadow: 0 0 0 3px rgba(79, 127, 106, 0.2);
+}
+
+.ai-form-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.ai-submit-btn {
+  margin-top: 0 !important;
+  font-size: 1.15rem !important;
+  padding: 10px 24px !important;
+}
+
+.ai-submit-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+  transform: none !important;
+  box-shadow: 0 4px 0 #365a49 !important;
+}
+
+.ai-sample-btn {
+  font-size: 1rem;
+}
+
+.ai-loading-box {
+  margin-top: 18px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  background: var(--paper-2);
+  border: 1px dashed var(--line);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--ink);
+  font-size: 1.05rem;
+}
+
+.ai-loading-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2.5px solid var(--moss);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.ai-error-box {
+  margin-top: 20px;
+  padding: 16px 18px;
+  border-radius: 10px;
+  background: #faeedb;
+  border: 2px dashed #d97706;
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  text-align: left;
+}
+
+.ai-error-icon {
+  font-size: 1.4rem;
+  line-height: 1;
+}
+
+.ai-error-title {
+  font-family: var(--display);
+  font-size: 1.4rem;
+  color: #92400e;
+  margin: 0 0 4px;
+  font-weight: normal;
+}
+
+.ai-error-message {
+  font-size: 1.05rem;
+  color: #78350f;
+  margin: 0;
+}
+
+.ai-result-card {
+  margin-top: 22px;
+  padding: 18px 20px;
+  border-radius: 12px;
+  background: var(--paper);
+  border: 2.5px solid var(--moss);
+  box-shadow: 0 2px 0 var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: left;
+}
+
+.ai-result-category {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--display);
+  font-size: 1.3rem;
+}
+
+.ai-result-cat-icon {
+  font-size: 1.35rem;
+}
+
+.ai-result-cat-name {
+  font-weight: 600;
+}
+
+.ai-result-confidence {
+  margin-left: auto;
+  font-family: var(--body);
+  font-size: 0.95rem;
+  color: var(--ink-soft);
+}
+
+.ai-result-title {
+  font-family: var(--display);
+  font-size: 1.65rem;
+  color: var(--ink);
+  margin: 0;
+  font-weight: normal;
+}
+
+.ai-result-summary {
+  font-size: 1.1rem;
+  color: var(--ink);
+  line-height: 1.4;
+  margin: 0;
+}
+
+.ai-result-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.ai-result-tag {
+  background: var(--paper-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 0.88rem;
+  color: var(--ink);
+  font-weight: 600;
 }
 
 /* ---------- responsive ---------- */

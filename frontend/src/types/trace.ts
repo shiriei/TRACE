@@ -102,7 +102,6 @@ export interface Trace {
 
   /**
    * Extensible slot for Phase 2+ Local AI-generated metadata.
-   * Kept optional and unused in Phase 1.
    */
   aiMetadata?: {
     thematicClass?: string;
@@ -111,3 +110,35 @@ export interface Trace {
     frontierHints?: string[];
   };
 }
+
+/**
+ * Phase 2 — Local AI Foundation Domain Types
+ */
+export type SensoryType =
+  | 'visual'
+  | 'auditory'
+  | 'environmental'
+  | 'textual'
+  | 'personal'
+  | 'mixed';
+
+export interface TraceAIResult {
+  category: TraceCategory;
+  title: string;
+  summary: string;
+  tags: string[];
+  sensory_type: SensoryType;
+  confidence: number;
+}
+
+export interface AIStatusResponse {
+  available: boolean;
+  provider: string;
+  model: string;
+}
+
+export interface AIErrorDetail {
+  error: string;
+  message: string;
+}
+

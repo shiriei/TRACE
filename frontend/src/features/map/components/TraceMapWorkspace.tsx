@@ -4,6 +4,7 @@ import { traceService } from '../../../services/traceService';
 import { TraceMap } from './TraceMap';
 import { formatTimestamp } from '../../../utils/formatters';
 import { TRACE_ILLUSTRATIONS, CATEGORY_MEANINGS } from './TraceThumbnails';
+import { TraceAIInterpreter } from '../../ai';
 
 const CATEGORY_ICONS: Record<TraceCategory, string> = {
   Nature: '🌿',
@@ -560,16 +561,8 @@ export const TraceMapWorkspace: React.FC = () => {
 
       <section className="row" id="join">
         <h2>Your street has stories</h2>
-        <p>Join walkers who are noticing moss, birdsong and mysteries underfoot.</p>
-        <button
-          type="button"
-          className="cta"
-          onClick={() => {
-            document.getElementById('map')?.scrollIntoView({ behavior: 'smooth' });
-          }}
-        >
-          Leave your first trace
-        </button>
+        <p>Notice something small outside and let local Gemma 3 4B interpret it into a trace.</p>
+        <TraceAIInterpreter />
       </section>
 
       {/* Critters in the margins that slide in on scroll */}

@@ -3,6 +3,7 @@ import { useHealthStatus } from '../hooks/useHealthStatus';
 import { StatusPanel } from '../components/StatusPanel';
 import { FoundationOverview } from '../components/FoundationOverview';
 import { ModulePlaceholders } from '../components/ModulePlaceholders';
+import { TraceAIInterpreter } from '../features/ai';
 
 interface DashboardProps {
   onNavigateToMap?: () => void;
@@ -48,6 +49,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigateToMap }) => {
           onRefresh={refetch}
         />
         <FoundationOverview />
+      </div>
+
+      <div style={{ marginBottom: '2rem' }}>
+        <TraceAIInterpreter />
       </div>
 
       <ModulePlaceholders />
