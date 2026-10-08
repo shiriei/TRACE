@@ -84,7 +84,24 @@ export const TraceDetailCard: React.FC<TraceDetailCardProps> = ({
             <circle cx="12" cy="12" r="3" />
             <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
           </svg>
-          <span>{trace.latitude.toFixed(4)}° N, {Math.abs(trace.longitude).toFixed(4)}° W</span>
+          {trace.latitude != null && trace.longitude != null ? (
+            <span>
+              {trace.latitude.toFixed(4)}° N, {Math.abs(trace.longitude).toFixed(4)}° W
+              {trace.locationMode === 'gps' || trace.location_mode === 'gps' ? (
+                <em className="field-note-loc-tag" style={{ fontStyle: 'normal', marginLeft: '0.4rem', opacity: 0.85 }}>
+                  &bull; Located by GPS
+                </em>
+              ) : trace.locationMode === 'manual' || trace.location_mode === 'manual' ? (
+                <em className="field-note-loc-tag" style={{ fontStyle: 'normal', marginLeft: '0.4rem', opacity: 0.85 }}>
+                  &bull; Placed by you
+                </em>
+              ) : null}
+            </span>
+          ) : (
+            <span style={{ fontStyle: 'italic', opacity: 0.85 }}>
+              Unplaced discovery
+            </span>
+          )}
         </div>
 
         {trace.tags && trace.tags.length > 0 && (

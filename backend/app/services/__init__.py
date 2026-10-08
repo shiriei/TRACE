@@ -1,5 +1,4 @@
-"""TRACE Business Services Package.
+"""TRACE Services Package."""
+from app.services.trace_service import TraceService, default_trace_service, get_trace_service
 
-This package is reserved for future core services (e.g. spatial clustering, trace services).
-No AI or database services are instantiated in Phase 0.
-"""
+__all__ = ["TraceService", "default_trace_service", "get_trace_service"]

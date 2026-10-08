@@ -4,7 +4,14 @@ import { interpretTraceObservation, TraceAIError } from '../../../services/api';
 
 const DEFAULT_SAMPLE = 'I noticed moss growing between bricks near a drain.';
 
-export const TraceAIInterpreter: React.FC = () => {
+interface TraceAIInterpreterProps {
+  onTraceReady?: (data: {
+    observation: string;
+    result?: TraceAIResult | null;
+  }) => void;
+}
+
+export const TraceAIInterpreter: React.FC<TraceAIInterpreterProps> = ({ onTraceReady }) => {
   const [observation, setObservation] = useState(DEFAULT_SAMPLE);
   const [isLoading, setIsLoading] = useState(false);
   const [result, setResult] = useState<TraceAIResult | null>(null);
@@ -113,6 +120,18 @@ export const TraceAIInterpreter: React.FC = () => {
           <div className="ai-error-content">
             <h4 className="ai-error-title">{errorInfo.title}</h4>
             <p className="ai-error-message">{errorInfo.message}</p>
+            {onTraceReady && (
+              <div style={{ marginTop: '0.75rem' }}>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => onTraceReady({ observation, result: null })}
+                  style={{ fontSize: '1rem', padding: '6px 14px' }}
+                >
+                  Place trace without AI &rarr;
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -135,6 +154,19 @@ export const TraceAIInterpreter: React.FC = () => {
                   #{tag}
                 </span>
               ))}
+            </div>
+          )}
+
+          {onTraceReady && (
+            <div style={{ marginTop: '1rem', textAlign: 'right' }}>
+              <button
+                type="button"
+                className="cta"
+                onClick={() => onTraceReady({ observation, result })}
+                style={{ fontSize: '1.05rem', padding: '8px 16px' }}
+              >
+                Place on Map &rarr;
+              </button>
             </div>
           )}
         </div>

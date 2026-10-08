@@ -45,6 +45,13 @@ class Settings(BaseSettings):
         description="Timeout in seconds for local AI model inference",
     )
 
+    # Persistence Configuration
+    DATABASE_PATH: str = Field(
+        default="runtime/traces.db",
+        validation_alias=AliasChoices("DATABASE_PATH", "TRACE_DATABASE_PATH"),
+        description="Path to local SQLite database file",
+    )
+
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
     def assemble_cors_origins(cls, v: Union[str, List[str]]) -> List[str]:

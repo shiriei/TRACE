@@ -12,6 +12,7 @@ export const API_ENDPOINTS = {
   root: `${API_BASE_URL}/`,
   aiStatus: `${API_BASE_URL}/api/v1/ai/status`,
   aiInterpret: `${API_BASE_URL}/api/v1/ai/interpret-trace`,
+  traces: `${API_BASE_URL}/api/v1/traces`,
 } as const;
 
 /**
@@ -141,4 +142,57 @@ export async function interpretTraceObservation(observation: string): Promise<Tr
     errorDetail.message || 'Try describing what you noticed in a little more detail.',
     response.status
   );
+}
+
+/**
+ * Persist a trace to the backend SQLite store.
+ */
+export async function createBackendTrace(payload: {
+  observation: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  location_mode?: 'gps' | 'manual' | 'unplaced';
+  category?: string;
+  title?: string;
+  summary?: string;
+  tags?: string[];
+  sensory_type?: string;
+}): Promise<any> {
+  const response = await fetch(API_ENDPOINTS.traces, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}));
+    throw new Error(
+      typeof errorBody.detail === 'string'
+        ? errorBody.detail
+        : `Failed to create trace: ${response.status}`
+    );
+  }
+
+  return response.json();
+}
+
+/**
+ * Retrieve all persistent traces from backend.
+ */
+export async function fetchBackendTraces(): Promise<any[]> {
+  const response = await fetch(API_ENDPOINTS.traces, {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch traces: ${response.status}`);
+  }
+
+  return response.json();
 }

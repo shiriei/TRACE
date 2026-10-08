@@ -1,5 +1,7 @@
+from contextlib import asynccontextmanager
 import logging
 from fastapi import FastAPI, Request, status
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -15,6 +17,16 @@ logging.basicConfig(
 )
 logger = logging.getLogger("trace.backend")
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan context for initialization and cleanup."""
+    from app.db.database import db
+    db.init_db()
+    logger.info("TRACE persistence initialized.")
+    yield
+
+
 # Initialize FastAPI application
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -22,6 +34,7 @@ app = FastAPI(
     description=settings.DESCRIPTION,
     docs_url="/docs",
     redoc_url="/redoc",
+    lifespan=lifespan,
 )
 
 # Configure CORS for local development
@@ -42,7 +55,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content={
             "error": "Validation Error",
-            "detail": exc.errors(),
+            "detail": jsonable_encoder(exc.errors()),
             "path": request.url.path,
         },
     )

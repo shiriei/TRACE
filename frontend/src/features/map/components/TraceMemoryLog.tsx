@@ -77,7 +77,9 @@ export const TraceMemoryLog: React.FC<TraceMemoryLogProps> = ({
 
               <div className="memory-card-footer">
                 <span className="memory-coords">
-                  {trace.latitude.toFixed(4)}° N, {Math.abs(trace.longitude).toFixed(4)}° W
+                  {trace.latitude != null && trace.longitude != null
+                    ? `${trace.latitude.toFixed(4)}° N, ${Math.abs(trace.longitude).toFixed(4)}° W`
+                    : 'Unplaced discovery'}
                 </span>
 
                 {trace.tags && trace.tags.length > 0 && (

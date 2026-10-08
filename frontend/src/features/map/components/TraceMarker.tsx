@@ -15,6 +15,15 @@ export const TraceMarker: React.FC<TraceMarkerProps> = ({
   isSelected = false,
   onSelect,
 }) => {
+  if (
+    trace.latitude == null ||
+    trace.longitude == null ||
+    isNaN(trace.latitude) ||
+    isNaN(trace.longitude)
+  ) {
+    return null;
+  }
+
   const icon = useMemo(() => {
     return createTraceIcon(trace.category, isSelected);
   }, [trace.category, isSelected]);

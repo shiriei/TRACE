@@ -124,3 +124,42 @@ export function createTraceIcon(category: TraceCategory, isSelected: boolean = f
     popupAnchor: [0, -(size + 6)],
   });
 }
+
+/**
+ * Creates a distinctive, draggable temporary marker for trace placement.
+ */
+export function createPlacementIcon(mode: 'gps' | 'manual'): L.DivIcon {
+  const isGps = mode === 'gps';
+  const color = isGps ? '#0284c7' : '#d97706';
+  const bgTint = isGps ? '#f0f9ff' : '#fffbeb';
+  const size = 44;
+
+  const svgInner = isGps
+    ? `<svg viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width: 22px; height: 22px;">
+        <circle cx="12" cy="12" r="3.5" fill="${color}" />
+        <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
+      </svg>`
+    : `<svg viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width: 22px; height: 22px;">
+        <path d="M12 21s-6-5.5-6-10a6 6 0 0 1 12 0c0 4.5-6 10-6 10z" fill="${color}" fill-opacity="0.3" />
+        <circle cx="12" cy="11" r="2.5" fill="${color}" />
+      </svg>`;
+
+  const html = `
+    <div class="field-placement-pin-wrapper">
+      <div class="field-placement-pulse" style="border-color: ${color};"></div>
+      <div class="field-placement-disc" style="background-color: ${bgTint}; border: 2.5px solid ${color};">
+        <span class="field-placement-symbol">
+          ${svgInner}
+        </span>
+      </div>
+      <div class="field-placement-nib" style="border-top-color: ${color};"></div>
+    </div>
+  `;
+
+  return L.divIcon({
+    html,
+    className: 'field-journal-placement-icon',
+    iconSize: [size, size + 12],
+    iconAnchor: [size / 2, size + 12],
+  });
+}

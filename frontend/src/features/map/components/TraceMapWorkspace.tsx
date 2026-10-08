@@ -1,10 +1,19 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Trace, TraceCategory, TraceCategoryFilter } from '../../../types/trace';
+import { Trace, TraceCategory, TraceCategoryFilter, SensoryType, TraceAIResult } from '../../../types';
 import { traceService } from '../../../services/traceService';
-import { TraceMap } from './TraceMap';
+import { TraceMap, PlacementState } from './TraceMap';
 import { formatTimestamp } from '../../../utils/formatters';
 import { TRACE_ILLUSTRATIONS, CATEGORY_MEANINGS } from './TraceThumbnails';
 import { TraceAIInterpreter } from '../../ai';
+
+interface PendingTrace {
+  observation: string;
+  category?: TraceCategory;
+  title?: string;
+  summary?: string;
+  tags?: string[];
+  sensory_type?: SensoryType;
+}
 
 const CATEGORY_ICONS: Record<TraceCategory, string> = {
   Nature: '🌿',
@@ -66,6 +75,11 @@ export const TraceMapWorkspace: React.FC = () => {
   const [recenterTrigger, setRecenterTrigger] = useState<number>(0);
   const [activeNavTab, setActiveNavTab] = useState<'map' | 'traces' | 'log' | 'settings'>('map');
 
+  // Trace placement state
+  const [pendingTrace, setPendingTrace] = useState<PendingTrace | null>(null);
+  const [showPlacementModal, setShowPlacementModal] = useState<boolean>(false);
+  const [placement, setPlacement] = useState<PlacementState | null>(null);
+
   // Load real React trace data
   useEffect(() => {
     async function loadData() {
@@ -111,6 +125,113 @@ export const TraceMapWorkspace: React.FC = () => {
   const handleRecenter = useCallback(() => {
     setRecenterTrigger((prev) => prev + 1);
   }, []);
+
+  // Trigger placement flow when user provides observation
+  const handleStartPlacement = useCallback((data: { observation: string; result?: TraceAIResult | null }) => {
+    setPendingTrace({
+      observation: data.observation,
+      category: data.result?.category || 'Personal',
+      title: data.result?.title || data.observation.slice(0, 50),
+      summary: data.result?.summary || data.observation,
+      tags: data.result?.tags || [],
+      sensory_type: data.result?.sensory_type || 'visual',
+    });
+    setShowPlacementModal(true);
+  }, []);
+
+  // Option 1: GPS Placement
+  const handleSelectGps = useCallback(() => {
+    setShowPlacementModal(false);
+
+    if (!navigator.geolocation) {
+      setPlacement({ mode: 'manual', position: [51.5074, -0.0915] });
+      document.getElementById('map')?.scrollIntoView({ behavior: 'smooth' });
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const coords: [number, number] = [pos.coords.latitude, pos.coords.longitude];
+        setPlacement({ mode: 'gps', position: coords });
+        document.getElementById('map')?.scrollIntoView({ behavior: 'smooth' });
+      },
+      (err) => {
+        console.warn('Geolocation probe unavailable or denied:', err.message);
+        setPlacement({ mode: 'manual', position: [51.5074, -0.0915] });
+        document.getElementById('map')?.scrollIntoView({ behavior: 'smooth' });
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  }, []);
+
+  // Option 2: Manual Placement
+  const handleSelectManual = useCallback(() => {
+    setShowPlacementModal(false);
+    const initialCenter: [number, number] =
+      visibleTraces.length > 0 && visibleTraces[0].latitude != null && visibleTraces[0].longitude != null
+        ? [visibleTraces[0].latitude, visibleTraces[0].longitude]
+        : [51.5074, -0.0915];
+    setPlacement({ mode: 'manual', position: initialCenter });
+    document.getElementById('map')?.scrollIntoView({ behavior: 'smooth' });
+  }, [visibleTraces]);
+
+  // Option 3 / Cancel: Save as Unplaced Trace
+  const handleSaveUnplaced = useCallback(async () => {
+    setShowPlacementModal(false);
+    setPlacement(null);
+    if (!pendingTrace) return;
+
+    const trace = await traceService.addTrace({
+      observation: pendingTrace.observation,
+      title: pendingTrace.title || pendingTrace.observation.slice(0, 50),
+      description: pendingTrace.summary || pendingTrace.observation,
+      category: pendingTrace.category || 'Personal',
+      latitude: null,
+      longitude: null,
+      locationMode: 'unplaced',
+      location_mode: 'unplaced',
+      tags: pendingTrace.tags || [],
+      sensory_type: pendingTrace.sensory_type,
+      media: [],
+    });
+
+    setAllTraces((prev) => [trace, ...prev.filter((t) => t.id !== trace.id)]);
+    setSelectedTraceId(trace.id);
+    const counts = await traceService.getCategoryCounts();
+    setCategoryCounts(counts);
+    setPendingTrace(null);
+  }, [pendingTrace]);
+
+  // Confirm placement from Map banner
+  const handleConfirmPlacement = useCallback(async () => {
+    if (!placement || !pendingTrace) return;
+
+    const trace = await traceService.addTrace({
+      observation: pendingTrace.observation,
+      title: pendingTrace.title || pendingTrace.observation.slice(0, 50),
+      description: pendingTrace.summary || pendingTrace.observation,
+      category: pendingTrace.category || 'Personal',
+      latitude: placement.position[0],
+      longitude: placement.position[1],
+      locationMode: placement.mode,
+      location_mode: placement.mode,
+      tags: pendingTrace.tags || [],
+      sensory_type: pendingTrace.sensory_type,
+      media: [],
+    });
+
+    setAllTraces((prev) => [trace, ...prev.filter((t) => t.id !== trace.id)]);
+    setSelectedTraceId(trace.id);
+    const counts = await traceService.getCategoryCounts();
+    setCategoryCounts(counts);
+
+    setPlacement(null);
+    setPendingTrace(null);
+  }, [placement, pendingTrace]);
+
+  const handleCancelPlacement = useCallback(() => {
+    handleSaveUnplaced();
+  }, [handleSaveUnplaced]);
 
   // Critters slide in on scroll
   useEffect(() => {
@@ -450,6 +571,12 @@ export const TraceMapWorkspace: React.FC = () => {
                   onSelectTrace={handleSelectTrace}
                   recenterTrigger={recenterTrigger}
                   onRecenter={handleRecenter}
+                  placement={placement}
+                  onPlacementPositionChange={(pos) =>
+                    setPlacement((prev) => (prev ? { ...prev, position: pos } : null))
+                  }
+                  onConfirmPlacement={handleConfirmPlacement}
+                  onCancelPlacement={handleCancelPlacement}
                 />
               )}
             </div>
@@ -495,9 +622,20 @@ export const TraceMapWorkspace: React.FC = () => {
 
                     <div className="note-card-content">
                       <h3 className="note-title">{trace.title}</h3>
-                      <small className="note-meta-location">
-                        📍 {trace.latitude.toFixed(4)}° N, {Math.abs(trace.longitude).toFixed(4)}° W
-                      </small>
+                      {trace.latitude != null && trace.longitude != null ? (
+                        <small className="note-meta-location">
+                          📍 {trace.latitude.toFixed(4)}° N, {Math.abs(trace.longitude).toFixed(4)}° W
+                          {trace.locationMode === 'gps' || trace.location_mode === 'gps' ? (
+                            <span className="note-loc-tag"> &bull; Located by GPS</span>
+                          ) : trace.locationMode === 'manual' || trace.location_mode === 'manual' ? (
+                            <span className="note-loc-tag"> &bull; Placed by you</span>
+                          ) : null}
+                        </small>
+                      ) : (
+                        <small className="note-meta-location note-meta-unplaced">
+                          📍 Unplaced discovery
+                        </small>
+                      )}
                       <small className="note-meta-date">{formatTimestamp(trace.createdAt)}</small>
                     </div>
                   </div>
@@ -562,8 +700,64 @@ export const TraceMapWorkspace: React.FC = () => {
       <section className="row" id="join">
         <h2>Your street has stories</h2>
         <p>Notice something small outside and let local Gemma 3 4B interpret it into a trace.</p>
-        <TraceAIInterpreter />
+        <TraceAIInterpreter onTraceReady={handleStartPlacement} />
       </section>
+
+      {/* Whimsical Trace Placement Method Prompt */}
+      {showPlacementModal && (
+        <div className="field-placement-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="placement-modal-title">
+          <div className="field-placement-modal">
+            <button
+              type="button"
+              className="field-placement-modal-close"
+              onClick={handleSaveUnplaced}
+              aria-label="Close and keep unplaced"
+            >
+              &times;
+            </button>
+            <h2 id="placement-modal-title" className="field-placement-modal-title">Where did you find this trace?</h2>
+            <p className="field-placement-modal-desc">
+              Choose how you want to position this discovery on your living map.
+            </p>
+
+            <div className="field-placement-modal-options">
+              <button
+                type="button"
+                className="field-placement-option-btn"
+                onClick={handleSelectGps}
+              >
+                <span className="field-placement-option-icon">📍</span>
+                <div>
+                  <strong className="field-placement-option-heading">Use my location</strong>
+                  <span className="field-placement-option-sub">Detect current coordinates and adjust on map</span>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                className="field-placement-option-btn"
+                onClick={handleSelectManual}
+              >
+                <span className="field-placement-option-icon">🗺</span>
+                <div>
+                  <strong className="field-placement-option-heading">Place it yourself</strong>
+                  <span className="field-placement-option-sub">Choose where this discovery belongs on the map</span>
+                </div>
+              </button>
+            </div>
+
+            <div>
+              <button
+                type="button"
+                className="field-placement-modal-skip"
+                onClick={handleSaveUnplaced}
+              >
+                Save without placing right now
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Critters in the margins that slide in on scroll */}
       <div className="critter l" style={{ top: '560px', '--w': '110px' } as React.CSSProperties}>

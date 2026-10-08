@@ -84,6 +84,8 @@ export type TraceMediaItem =
   | VoiceMediaItem
   | GenericMediaItem;
 
+export type LocationMode = 'gps' | 'manual' | 'unplaced';
+
 /**
  * A recorded Trace — an enduring observation of curiosity in the physical world.
  */
@@ -92,13 +94,21 @@ export interface Trace {
   title: string;
   description: string;
   category: TraceCategory;
-  latitude: number;
-  longitude: number;
+  latitude?: number | null;
+  longitude?: number | null;
+  locationMode?: LocationMode;
+  location_mode?: LocationMode;
   createdAt: string; // ISO 8601 string
+  created_at?: string;
   observation?: string; // "What I noticed"
   userNotes?: string; // "My notes & field reflections"
+  summary?: string;
   tags?: string[];
-  media: TraceMediaItem[]; // Future-proof capture array (empty in Phase 1 demo data)
+  sensory_type?: SensoryType;
+  confidence?: number;
+  photo_path?: string | null;
+  audio_path?: string | null;
+  media?: TraceMediaItem[]; // Future-proof capture array (empty in Phase 1 demo data)
 
   /**
    * Extensible slot for Phase 2+ Local AI-generated metadata.
@@ -109,6 +119,18 @@ export interface Trace {
     confidence?: number;
     frontierHints?: string[];
   };
+}
+
+export interface TraceCreatePayload {
+  observation: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  location_mode?: LocationMode;
+  category?: TraceCategory;
+  title?: string;
+  summary?: string;
+  tags?: string[];
+  sensory_type?: SensoryType;
 }
 
 /**
