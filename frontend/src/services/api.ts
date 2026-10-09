@@ -196,3 +196,103 @@ export async function fetchBackendTraces(): Promise<any[]> {
 
   return response.json();
 }
+
+/**
+ * Upload a media attachment (photo or audio) to an existing trace.
+ */
+export async function uploadTraceAttachment(
+  traceId: string,
+  file: File
+): Promise<any> {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const response = await fetch(`${API_ENDPOINTS.traces}/${traceId}/attachments`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}));
+    throw new Error(
+      typeof errorBody.detail === 'string'
+        ? errorBody.detail
+        : `Upload failed: ${response.status} (${response.statusText})`
+    );
+  }
+
+  return response.json();
+}
+
+/**
+ * Fetch all attachments associated with a trace.
+ */
+export async function fetchTraceAttachments(traceId: string): Promise<any[]> {
+  const response = await fetch(`${API_ENDPOINTS.traces}/${traceId}/attachments`, {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch attachments: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Get direct content streaming URL for an attachment.
+ */
+export function getAttachmentContentUrl(traceId: string, attachmentId: string): string {
+  return `${API_ENDPOINTS.traces}/${traceId}/attachments/${attachmentId}/content`;
+}
+
+/**
+ * Delete an attachment from a trace.
+ */
+export async function deleteTraceAttachment(
+  traceId: string,
+  attachmentId: string
+): Promise<any> {
+  const response = await fetch(
+    `${API_ENDPOINTS.traces}/${traceId}/attachments/${attachmentId}`,
+    {
+      method: 'DELETE',
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(`Failed to delete attachment: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Permanently delete a trace and its attachments from the backend SQLite store.
+ */
+export async function deleteBackendTrace(
+  traceId: string
+): Promise<{ message: string; id: string }> {
+  const response = await fetch(`${API_ENDPOINTS.traces}/${traceId}`, {
+    method: 'DELETE',
+    headers: {
+      Accept: 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}));
+    throw new Error(
+      typeof errorBody.detail === 'string'
+        ? errorBody.detail
+        : `Failed to delete trace: ${response.status}`
+    );
+  }
+
+  return response.json();
+}
+
+

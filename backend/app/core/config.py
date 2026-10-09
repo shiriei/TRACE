@@ -52,6 +52,19 @@ class Settings(BaseSettings):
         description="Path to local SQLite database file",
     )
 
+    # Local Media Storage Configuration
+    MEDIA_DIR: str = Field(
+        default="runtime/media",
+        validation_alias=AliasChoices("MEDIA_DIR", "TRACE_MEDIA_DIR"),
+        description="Path to local directory for storing media attachments",
+    )
+    MAX_UPLOAD_SIZE_BYTES: int = Field(
+        default=15 * 1024 * 1024,  # 15 MB
+        validation_alias=AliasChoices("MAX_UPLOAD_SIZE_BYTES", "TRACE_MAX_UPLOAD_SIZE_BYTES"),
+        description="Maximum allowed media upload size in bytes (default: 15 MB)",
+    )
+
+
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
     def assemble_cors_origins(cls, v: Union[str, List[str]]) -> List[str]:

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Trace, TraceCategory, TraceCategoryFilter, SensoryType, TraceAIResult } from '../../../types';
 import { traceService } from '../../../services/traceService';
 import { TraceMap, PlacementState } from './TraceMap';
@@ -13,7 +13,10 @@ interface PendingTrace {
   summary?: string;
   tags?: string[];
   sensory_type?: SensoryType;
+  photoFile?: File | null;
+  audioFile?: File | null;
 }
+
 
 const CATEGORY_ICONS: Record<TraceCategory, string> = {
   Nature: '🌿',
@@ -79,6 +82,16 @@ export const TraceMapWorkspace: React.FC = () => {
   const [pendingTrace, setPendingTrace] = useState<PendingTrace | null>(null);
   const [showPlacementModal, setShowPlacementModal] = useState<boolean>(false);
   const [placement, setPlacement] = useState<PlacementState | null>(null);
+  const [uploadAlert, setUploadAlert] = useState<string | null>(null);
+  const [isPlacingInProgress, setIsPlacingInProgress] = useState<boolean>(false);
+  const isConfirmingRef = useRef<boolean>(false);
+  const [interpreterKey, setInterpreterKey] = useState<number>(0);
+
+  // Delete trace state
+  const [traceToDelete, setTraceToDelete] = useState<Trace | null>(null);
+  const [isDeleteInProgress, setIsDeleteInProgress] = useState<boolean>(false);
+  const isDeleteInProgressRef = useRef<boolean>(false);
+  const [feedbackAlert, setFeedbackAlert] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   // Load real React trace data
   useEffect(() => {
@@ -92,7 +105,8 @@ export const TraceMapWorkspace: React.FC = () => {
         setAllTraces(traces);
         setCategoryCounts(counts);
         if (traces.length > 0) {
-          setSelectedTraceId(traces[0].id);
+          const firstPlaced = traces.find((t) => t.latitude != null && t.longitude != null);
+          setSelectedTraceId(firstPlaced ? firstPlaced.id : traces[0].id);
         }
       } finally {
         setIsLoading(false);
@@ -126,18 +140,28 @@ export const TraceMapWorkspace: React.FC = () => {
     setRecenterTrigger((prev) => prev + 1);
   }, []);
 
-  // Trigger placement flow when user provides observation
-  const handleStartPlacement = useCallback((data: { observation: string; result?: TraceAIResult | null }) => {
-    setPendingTrace({
-      observation: data.observation,
-      category: data.result?.category || 'Personal',
-      title: data.result?.title || data.observation.slice(0, 50),
-      summary: data.result?.summary || data.observation,
-      tags: data.result?.tags || [],
-      sensory_type: data.result?.sensory_type || 'visual',
-    });
-    setShowPlacementModal(true);
-  }, []);
+  // Trigger placement flow when user provides observation and optional attachments
+  const handleStartPlacement = useCallback(
+    (data: {
+      observation: string;
+      result?: TraceAIResult | null;
+      photoFile?: File | null;
+      audioFile?: File | null;
+    }) => {
+      setPendingTrace({
+        observation: data.observation,
+        category: data.result?.category || 'Personal',
+        title: data.result?.title || data.observation.slice(0, 50),
+        summary: data.result?.summary || data.observation,
+        tags: data.result?.tags || [],
+        sensory_type: data.result?.sensory_type || 'visual',
+        photoFile: data.photoFile || null,
+        audioFile: data.audioFile || null,
+      });
+      setShowPlacementModal(true);
+    },
+    []
+  );
 
   // Option 1: GPS Placement
   const handleSelectGps = useCallback(() => {
@@ -177,61 +201,140 @@ export const TraceMapWorkspace: React.FC = () => {
 
   // Option 3 / Cancel: Save as Unplaced Trace
   const handleSaveUnplaced = useCallback(async () => {
+    if (isConfirmingRef.current || !pendingTrace) return;
+    isConfirmingRef.current = true;
+    setIsPlacingInProgress(true);
     setShowPlacementModal(false);
     setPlacement(null);
-    if (!pendingTrace) return;
 
-    const trace = await traceService.addTrace({
-      observation: pendingTrace.observation,
-      title: pendingTrace.title || pendingTrace.observation.slice(0, 50),
-      description: pendingTrace.summary || pendingTrace.observation,
-      category: pendingTrace.category || 'Personal',
-      latitude: null,
-      longitude: null,
-      locationMode: 'unplaced',
-      location_mode: 'unplaced',
-      tags: pendingTrace.tags || [],
-      sensory_type: pendingTrace.sensory_type,
-      media: [],
-    });
+    try {
+      const { trace, uploadErrors } = await traceService.addTraceWithAttachments(
+        {
+          observation: pendingTrace.observation,
+          title: pendingTrace.title || pendingTrace.observation.slice(0, 50),
+          description: pendingTrace.summary || pendingTrace.observation,
+          category: pendingTrace.category || 'Personal',
+          latitude: null,
+          longitude: null,
+          locationMode: 'unplaced',
+          location_mode: 'unplaced',
+          tags: pendingTrace.tags || [],
+          sensory_type: pendingTrace.sensory_type,
+          media: [],
+        },
+        pendingTrace.photoFile,
+        pendingTrace.audioFile
+      );
 
-    setAllTraces((prev) => [trace, ...prev.filter((t) => t.id !== trace.id)]);
-    setSelectedTraceId(trace.id);
-    const counts = await traceService.getCategoryCounts();
-    setCategoryCounts(counts);
-    setPendingTrace(null);
+      if (uploadErrors.length > 0) {
+        setUploadAlert(uploadErrors.join(' | '));
+      }
+
+      setAllTraces((prev) => [trace, ...prev.filter((t) => t.id !== trace.id)]);
+      setSelectedTraceId(trace.id);
+      const counts = await traceService.getCategoryCounts();
+      setCategoryCounts(counts);
+      setPendingTrace(null);
+      setInterpreterKey((prev) => prev + 1);
+    } catch (err: any) {
+      setUploadAlert(`Failed to save trace: ${err.message || 'Unknown error'}. Please try again.`);
+    } finally {
+      isConfirmingRef.current = false;
+      setIsPlacingInProgress(false);
+    }
   }, [pendingTrace]);
 
   // Confirm placement from Map banner
   const handleConfirmPlacement = useCallback(async () => {
-    if (!placement || !pendingTrace) return;
+    if (isConfirmingRef.current || !placement || !pendingTrace) return;
+    isConfirmingRef.current = true;
+    setIsPlacingInProgress(true);
 
-    const trace = await traceService.addTrace({
-      observation: pendingTrace.observation,
-      title: pendingTrace.title || pendingTrace.observation.slice(0, 50),
-      description: pendingTrace.summary || pendingTrace.observation,
-      category: pendingTrace.category || 'Personal',
-      latitude: placement.position[0],
-      longitude: placement.position[1],
-      locationMode: placement.mode,
-      location_mode: placement.mode,
-      tags: pendingTrace.tags || [],
-      sensory_type: pendingTrace.sensory_type,
-      media: [],
-    });
+    try {
+      const { trace, uploadErrors } = await traceService.addTraceWithAttachments(
+        {
+          observation: pendingTrace.observation,
+          title: pendingTrace.title || pendingTrace.observation.slice(0, 50),
+          description: pendingTrace.summary || pendingTrace.observation,
+          category: pendingTrace.category || 'Personal',
+          latitude: placement.position[0],
+          longitude: placement.position[1],
+          locationMode: placement.mode,
+          location_mode: placement.mode,
+          tags: pendingTrace.tags || [],
+          sensory_type: pendingTrace.sensory_type,
+          media: [],
+        },
+        pendingTrace.photoFile,
+        pendingTrace.audioFile
+      );
 
-    setAllTraces((prev) => [trace, ...prev.filter((t) => t.id !== trace.id)]);
-    setSelectedTraceId(trace.id);
-    const counts = await traceService.getCategoryCounts();
-    setCategoryCounts(counts);
+      if (uploadErrors.length > 0) {
+        setUploadAlert(uploadErrors.join(' | '));
+      }
 
-    setPlacement(null);
-    setPendingTrace(null);
+      setAllTraces((prev) => [trace, ...prev.filter((t) => t.id !== trace.id)]);
+      setSelectedTraceId(trace.id);
+      const counts = await traceService.getCategoryCounts();
+      setCategoryCounts(counts);
+
+      // On successful confirmation: exit placement mode, clear pending state, and reset creation form
+      setPlacement(null);
+      setPendingTrace(null);
+      setInterpreterKey((prev) => prev + 1);
+    } catch (err: any) {
+      // If saving fails: retain pendingTrace and placement state so user can retry!
+      setUploadAlert(`Failed to place trace: ${err.message || 'Unknown error'}. Please try again.`);
+    } finally {
+      isConfirmingRef.current = false;
+      setIsPlacingInProgress(false);
+    }
   }, [placement, pendingTrace]);
 
   const handleCancelPlacement = useCallback(() => {
-    handleSaveUnplaced();
-  }, [handleSaveUnplaced]);
+    setPlacement(null);
+  }, []);
+
+  // Delete trace handlers
+  const handleRequestDelete = useCallback((trace: Trace) => {
+    setTraceToDelete(trace);
+  }, []);
+
+  const handleCancelDelete = useCallback(() => {
+    if (isDeleteInProgressRef.current) return;
+    setTraceToDelete(null);
+  }, []);
+
+  const handleConfirmDelete = useCallback(async () => {
+    if (!traceToDelete || isDeleteInProgressRef.current) return;
+    isDeleteInProgressRef.current = true;
+    setIsDeleteInProgress(true);
+    setFeedbackAlert(null);
+
+    try {
+      await traceService.deleteTrace(traceToDelete.id);
+      setAllTraces((prev) => prev.filter((t) => t.id !== traceToDelete.id));
+      if (selectedTraceId === traceToDelete.id) {
+        setSelectedTraceId(null);
+      }
+      const counts = await traceService.getCategoryCounts();
+      setCategoryCounts(counts);
+      setTraceToDelete(null);
+      setFeedbackAlert({
+        type: 'success',
+        message: 'Trace deleted successfully.',
+      });
+    } catch (err: any) {
+      setFeedbackAlert({
+        type: 'error',
+        message: `Failed to delete trace: ${err.message || 'Unknown error'}. Please try again.`,
+      });
+    } finally {
+      isDeleteInProgressRef.current = false;
+      setIsDeleteInProgress(false);
+    }
+  }, [traceToDelete, selectedTraceId]);
+
 
   // Critters slide in on scroll
   useEffect(() => {
@@ -467,6 +570,37 @@ export const TraceMapWorkspace: React.FC = () => {
 
         {/* Center: Living Map Card */}
         <section className="paper mapcard" aria-label="Living map">
+          {feedbackAlert && (
+            <div
+              className={`feedback-alert-banner feedback-alert--${feedbackAlert.type}`}
+              role={feedbackAlert.type === 'error' ? 'alert' : 'status'}
+            >
+              <span>{feedbackAlert.message}</span>
+              <button
+                type="button"
+                className="feedback-alert-close"
+                onClick={() => setFeedbackAlert(null)}
+                aria-label="Dismiss alert"
+              >
+                &times;
+              </button>
+            </div>
+          )}
+
+          {uploadAlert && (
+            <div className="upload-alert-banner" role="alert">
+              <span className="upload-alert-text">⚠️ {uploadAlert}</span>
+              <button
+                type="button"
+                className="btn-close-alert"
+                onClick={() => setUploadAlert(null)}
+                aria-label="Dismiss alert"
+              >
+                &times;
+              </button>
+            </div>
+          )}
+
           {/* Five Ways of Tracing Filter Chips */}
           <div className="chips" id="chips">
             <span className="chips-lenses-label" title="Five ways of noticing the physical world">
@@ -577,6 +711,8 @@ export const TraceMapWorkspace: React.FC = () => {
                   }
                   onConfirmPlacement={handleConfirmPlacement}
                   onCancelPlacement={handleCancelPlacement}
+                  isPlacingInProgress={isPlacingInProgress}
+                  onDeleteTrace={handleRequestDelete}
                 />
               )}
             </div>
@@ -655,6 +791,36 @@ export const TraceMapWorkspace: React.FC = () => {
                       ))}
                     </div>
                   )}
+
+                  {/* Delete trace action */}
+                  <div className="note-card-actions">
+                    <button
+                      type="button"
+                      className="note-delete-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleRequestDelete(trace);
+                      }}
+                      title="Delete trace"
+                      aria-label={`Delete trace ${trace.title}`}
+                    >
+                      <svg
+                        viewBox="0 0 24 24"
+                        width="12"
+                        height="12"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
+                      >
+                        <polyline points="3 6 5 6 21 6" />
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                      </svg>
+                      <span>Delete trace</span>
+                    </button>
+                  </div>
                 </article>
               );
             })}
@@ -700,7 +866,7 @@ export const TraceMapWorkspace: React.FC = () => {
       <section className="row" id="join">
         <h2>Your street has stories</h2>
         <p>Notice something small outside and let local Gemma 3 4B interpret it into a trace.</p>
-        <TraceAIInterpreter onTraceReady={handleStartPlacement} />
+        <TraceAIInterpreter key={interpreterKey} onTraceReady={handleStartPlacement} />
       </section>
 
       {/* Whimsical Trace Placement Method Prompt */}
@@ -719,6 +885,27 @@ export const TraceMapWorkspace: React.FC = () => {
             <p className="field-placement-modal-desc">
               Choose how you want to position this discovery on your living map.
             </p>
+
+            {pendingTrace && (
+              <div className="field-placement-trace-target">
+                <span className="field-placement-target-label">Attaching to trace: </span>
+                <strong>{pendingTrace.title || 'Field Observation'}</strong>
+                {(pendingTrace.photoFile || pendingTrace.audioFile) && (
+                  <div className="field-placement-attachments-preview">
+                    {pendingTrace.photoFile && (
+                      <span className="placement-attachment-badge">
+                        📷 Photo: {pendingTrace.photoFile.name}
+                      </span>
+                    )}
+                    {pendingTrace.audioFile && (
+                      <span className="placement-attachment-badge">
+                        🎙️ Audio: {pendingTrace.audioFile.name}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="field-placement-modal-options">
               <button
@@ -753,6 +940,62 @@ export const TraceMapWorkspace: React.FC = () => {
                 onClick={handleSaveUnplaced}
               >
                 Save without placing right now
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Trace Confirmation Dialog */}
+      {traceToDelete && (
+        <div
+          className="field-placement-modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-dialog-title"
+        >
+          <div className="field-placement-modal field-delete-modal">
+            <button
+              type="button"
+              className="field-placement-modal-close"
+              onClick={handleCancelDelete}
+              disabled={isDeleteInProgress}
+              aria-label="Keep trace"
+            >
+              &times;
+            </button>
+            <div className="field-delete-icon-badge" aria-hidden="true">
+              🗑️
+            </div>
+            <h2 id="delete-dialog-title" className="field-placement-modal-title">
+              Delete this trace?
+            </h2>
+            <p className="field-placement-modal-desc">
+              This will permanently remove this discovery and its attached photos and audio.
+            </p>
+
+            <div className="field-delete-target-preview">
+              <span className="field-delete-preview-title">{traceToDelete.title}</span>
+              <span className="field-delete-preview-category">{traceToDelete.category} Discovery</span>
+            </div>
+
+            <div className="field-delete-modal-actions">
+              <button
+                type="button"
+                className="cta field-delete-confirm-btn"
+                onClick={handleConfirmDelete}
+                disabled={isDeleteInProgress}
+                aria-busy={isDeleteInProgress}
+              >
+                {isDeleteInProgress ? 'Deleting...' : 'Delete permanently'}
+              </button>
+              <button
+                type="button"
+                className="btn-secondary field-delete-cancel-btn"
+                onClick={handleCancelDelete}
+                disabled={isDeleteInProgress}
+              >
+                Keep trace
               </button>
             </div>
           </div>

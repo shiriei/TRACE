@@ -11,19 +11,33 @@ from app.models.trace import TraceModel
 from app.repositories.trace_repository import TraceRepository, get_trace_repository
 
 
+from app.repositories.attachment_repository import AttachmentRepository, get_attachment_repository
+from app.services.media_storage import MediaStorageService, get_media_storage
+
+
 @pytest.fixture
 def test_db_repo(tmp_path):
     """Fixture providing an isolated SQLite database and repository for each test."""
     db_file = tmp_path / "traces_test.db"
+    media_dir = tmp_path / "traces_media"
+    media_dir.mkdir(exist_ok=True)
+
     db_instance = SQLiteDatabase(db_path=str(db_file))
     repo_instance = TraceRepository(database=db_instance)
+    attach_repo = AttachmentRepository(database=db_instance)
+    storage_svc = MediaStorageService(media_dir=str(media_dir))
 
-    # Override repository dependency in FastAPI app
+    # Override dependencies in FastAPI app
     app.dependency_overrides[get_trace_repository] = lambda: repo_instance
+    app.dependency_overrides[get_attachment_repository] = lambda: attach_repo
+    app.dependency_overrides[get_media_storage] = lambda: storage_svc
 
     yield repo_instance
 
     app.dependency_overrides.pop(get_trace_repository, None)
+    app.dependency_overrides.pop(get_attachment_repository, None)
+    app.dependency_overrides.pop(get_media_storage, None)
+
 
 
 @pytest.fixture(autouse=True)
@@ -483,3 +497,255 @@ def test_persistence_across_database_sessions(tmp_path):
     assert len(all_traces) == 1
     assert all_traces[0].id == "trace-session-test-01"
     assert all_traces[0].location_mode == "gps"
+
+
+# =====================================================================
+# Regression Tests for UI Alignment & Duplicate Protection
+# =====================================================================
+
+def test_double_click_creates_only_one_trace(client, test_db_repo):
+    """Simulating rapid double-clicks creates only one trace in the repository."""
+    payload = {
+        "observation": "A cluster of wild bluebells growing near the roots of an oak tree.",
+        "latitude": 51.5074,
+        "longitude": -0.1278,
+        "location_mode": "manual",
+    }
+    # Send first click
+    resp1 = client.post("/api/v1/traces", json=payload)
+    assert resp1.status_code == 201
+    trace1 = resp1.json()
+
+    # Send rapid second click (within dedup window)
+    resp2 = client.post("/api/v1/traces", json=payload)
+    assert resp2.status_code == 201
+    trace2 = resp2.json()
+
+    # Both requests return the same trace ID
+    assert trace1["id"] == trace2["id"]
+
+    # Repository contains only ONE trace
+    all_traces = test_db_repo.get_all()
+    matching = [t for t in all_traces if t.observation == payload["observation"]]
+    assert len(matching) == 1
+
+
+def test_duplicate_protection_does_not_block_separate_legitimate_traces(client, test_db_repo):
+    """Traces with different coordinates or modes are not blocked."""
+    payload1 = {
+        "observation": "Interesting moss patch on stone.",
+        "latitude": 51.5074,
+        "longitude": -0.1278,
+        "location_mode": "manual",
+    }
+    payload2 = {
+        "observation": "Interesting moss patch on stone.",
+        "latitude": 51.5090,
+        "longitude": -0.1290,
+        "location_mode": "gps",
+    }
+    resp1 = client.post("/api/v1/traces", json=payload1)
+    resp2 = client.post("/api/v1/traces", json=payload2)
+    assert resp1.status_code == 201
+    assert resp2.status_code == 201
+    assert resp1.json()["id"] != resp2.json()["id"]
+
+    all_traces = test_db_repo.get_all()
+    assert len(all_traces) == 2
+
+
+def test_failed_creation_retains_ability_to_retry(client, test_db_repo):
+    """If a database/storage failure occurs, retrying creates the trace successfully."""
+    from unittest.mock import patch
+    payload = {
+        "observation": "Unusual bird call echoing in the alley.",
+        "latitude": 51.5074,
+        "longitude": -0.1278,
+        "location_mode": "gps",
+    }
+
+    # Simulate transient DB failure on first call
+    with pytest.raises(RuntimeError):
+        with patch.object(test_db_repo, "create", side_effect=RuntimeError("Transient DB error")):
+            client.post("/api/v1/traces", json=payload)
+
+    # User retries the request
+    resp2 = client.post("/api/v1/traces", json=payload)
+    assert resp2.status_code == 201
+    assert resp2.json()["observation"] == payload["observation"]
+
+    all_traces = test_db_repo.get_all()
+    assert len(all_traces) == 1
+
+
+def test_delete_trace_removes_from_backend(client, test_db_repo):
+    """Deleting a trace removes it from the backend and returns success."""
+    # 1. Create a trace
+    create_res = client.post(
+        "/api/v1/traces",
+        json={
+            "observation": "Old water fountain embedded in the school wall.",
+            "latitude": 51.5074,
+            "longitude": -0.1278,
+            "location_mode": "manual",
+        },
+    )
+    assert create_res.status_code == 201
+    trace_id = create_res.json()["id"]
+
+    # 2. Delete the trace
+    del_res = client.delete(f"/api/v1/traces/{trace_id}")
+    assert del_res.status_code == 200
+    assert del_res.json()["id"] == trace_id
+
+    # 3. Verify it is gone from database
+    get_res = client.get(f"/api/v1/traces/{trace_id}")
+    assert get_res.status_code == 404
+    assert test_db_repo.get_by_id(trace_id) is None
+
+
+def test_delete_trace_cleans_attachment_files_safely(client, test_db_repo, tmp_path):
+    """Deleting a trace safely removes its attachment records and owned media files from disk."""
+    from app.models.attachment import AttachmentModel
+    from app.repositories.attachment_repository import get_attachment_repository
+    from app.services.media_storage import get_media_storage
+
+    attach_repo = app.dependency_overrides[get_attachment_repository]()
+    storage_svc = app.dependency_overrides[get_media_storage]()
+
+    # 1. Create trace
+    create_res = client.post(
+        "/api/v1/traces",
+        json={
+            "observation": "Wild blackberry bush with dark fruit.",
+            "latitude": 51.5100,
+            "longitude": -0.1200,
+            "location_mode": "gps",
+        },
+    )
+    assert create_res.status_code == 201
+    trace_id = create_res.json()["id"]
+
+    # 2. Add an attachment file to disk and record
+    dummy_file = storage_svc.resolve_safe_path("blackberry_test.jpg")
+    dummy_file.write_bytes(b"\xff\xd8\xff\xe0" + b"\x00" * 20)
+
+    attach_model = AttachmentModel(
+        id="att-test-01",
+        trace_id=trace_id,
+        media_type="photo",
+        stored_filename="blackberry_test.jpg",
+        original_filename="blackberry.jpg",
+        mime_type="image/jpeg",
+        file_size_bytes=24,
+        created_at="2026-10-09T12:00:00+00:00",
+    )
+    attach_repo.create(attach_model)
+    assert dummy_file.exists()
+
+    # 3. Delete trace
+    del_res = client.delete(f"/api/v1/traces/{trace_id}")
+    assert del_res.status_code == 200
+
+    # 4. Confirm attachment record and file are removed
+    assert attach_repo.get_by_id("att-test-01") is None
+    assert not dummy_file.exists()
+
+
+def test_two_legitimate_traces_with_identical_titles_remain_distinct(client, test_db_repo):
+    """Two legitimate traces with identical titles at different locations or times remain distinct."""
+    payload1 = {
+        "observation": "Moss Growth on Bricks near the north entrance.",
+        "title": "Moss Growth on Bricks",
+        "latitude": 51.5074,
+        "longitude": -0.1278,
+        "location_mode": "gps",
+    }
+    payload2 = {
+        "observation": "Moss Growth on Bricks near the south drain.",
+        "title": "Moss Growth on Bricks",
+        "latitude": 51.5090,
+        "longitude": -0.1290,
+        "location_mode": "manual",
+    }
+    res1 = client.post("/api/v1/traces", json=payload1)
+    res2 = client.post("/api/v1/traces", json=payload2)
+
+    assert res1.status_code == 201
+    assert res2.status_code == 201
+    id1 = res1.json()["id"]
+    id2 = res2.json()["id"]
+    assert id1 != id2
+
+    list_res = client.get("/api/v1/traces")
+    assert list_res.status_code == 200
+    ids = [t["id"] for t in list_res.json()]
+    assert id1 in ids
+    assert id2 in ids
+
+
+def test_cleanup_duplicate_creation_events(test_db_repo):
+    """Cleanup removes duplicate creation events within 10s while keeping separate discoveries."""
+    from app.services.trace_service import TraceService
+    from app.repositories.attachment_repository import get_attachment_repository
+    from app.services.media_storage import get_media_storage
+
+    attach_repo = app.dependency_overrides[get_attachment_repository]()
+    storage_svc = app.dependency_overrides[get_media_storage]()
+    svc = TraceService(repository=test_db_repo, attachment_repository=attach_repo, media_storage=storage_svc)
+
+    t1 = TraceModel(
+        id="trace-dup-01",
+        observation="Pigeon nesting in ornamental cornice.",
+        category="Nature",
+        title="Pigeon Nest",
+        summary="Pigeon nesting in cornice.",
+        tags=["pigeon"],
+        sensory_type="visual",
+        confidence=0.9,
+        latitude=51.5000,
+        longitude=-0.1200,
+        location_mode="manual",
+        created_at="2026-10-09T10:00:00+00:00",
+    )
+    # Duplicate created 2 seconds later
+    t2 = TraceModel(
+        id="trace-dup-02",
+        observation="Pigeon nesting in ornamental cornice.",
+        category="Nature",
+        title="Pigeon Nest",
+        summary="Pigeon nesting in cornice.",
+        tags=["pigeon"],
+        sensory_type="visual",
+        confidence=0.9,
+        latitude=51.5000,
+        longitude=-0.1200,
+        location_mode="manual",
+        created_at="2026-10-09T10:00:02+00:00",
+    )
+    # Legitimate separate observation 40 seconds later at different location
+    t3 = TraceModel(
+        id="trace-separate-03",
+        observation="Pigeon nesting in ornamental cornice.",
+        category="Nature",
+        title="Pigeon Nest",
+        summary="Pigeon nesting in cornice.",
+        tags=["pigeon"],
+        sensory_type="visual",
+        confidence=0.9,
+        latitude=51.5050,
+        longitude=-0.1250,
+        location_mode="manual",
+        created_at="2026-10-09T10:00:40+00:00",
+    )
+    test_db_repo.create(t1)
+    test_db_repo.create(t2)
+    test_db_repo.create(t3)
+
+    cleaned = svc.cleanup_duplicate_creation_events()
+    assert cleaned == ["trace-dup-02"]
+    assert test_db_repo.get_by_id("trace-dup-01") is not None
+    assert test_db_repo.get_by_id("trace-dup-02") is None
+    assert test_db_repo.get_by_id("trace-separate-03") is not None
+
+

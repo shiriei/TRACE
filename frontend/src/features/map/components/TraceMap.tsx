@@ -22,6 +22,8 @@ interface TraceMapProps {
   onPlacementPositionChange?: (pos: [number, number]) => void;
   onConfirmPlacement?: () => void;
   onCancelPlacement?: () => void;
+  isPlacingInProgress?: boolean;
+  onDeleteTrace?: (trace: Trace) => void;
 }
 
 /**
@@ -59,36 +61,37 @@ const MapViewController: React.FC<{
       const bounds = L.latLngBounds(
         validTraces.map((t) => [t.latitude!, t.longitude!] as [number, number])
       );
-      map.fitBounds(bounds, {
-        padding: [60, 60],
-        maxZoom: 16,
-        animate,
-      });
+      if (bounds.isValid()) {
+        map.fitBounds(bounds, {
+          padding: [60, 60],
+          maxZoom: 16,
+          animate,
+        });
+      }
     },
     [map, validTraces, placement]
   );
 
-  // Initial bounds fit on mount
+  // Initial bounds fit on mount with invalidateSize
   useEffect(() => {
-    if (isInitialMount.current && validTraces.length > 0 && !placement) {
-      fitToTraces(false);
+    if (isInitialMount.current) {
       isInitialMount.current = false;
+      const timer = setTimeout(() => {
+        map.invalidateSize();
+        if (validTraces.length > 0 && !placement) {
+          fitToTraces(false);
+        }
+      }, 100);
+      return () => clearTimeout(timer);
     }
-  }, [fitToTraces, validTraces, placement]);
+  }, [map, fitToTraces, validTraces, placement]);
 
-  // Re-fit when user clicks the Recenter button
+  // Re-fit when user clicks Recenter button or changes category filter
   useEffect(() => {
     if (recenterTrigger > 0) {
       fitToTraces(true);
     }
   }, [recenterTrigger, fitToTraces]);
-
-  // Re-fit when category filter changes trace count/list
-  useEffect(() => {
-    if (!isInitialMount.current && !placement) {
-      fitToTraces(true);
-    }
-  }, [validTraces, fitToTraces, placement]);
 
   // Center smoothly on newly selected trace
   useEffect(() => {
@@ -99,6 +102,7 @@ const MapViewController: React.FC<{
       });
     }
   }, [selectedTrace, map, placement]);
+
 
   // Handle window and container resize
   useEffect(() => {
@@ -161,6 +165,8 @@ export const TraceMap: React.FC<TraceMapProps> = ({
   onPlacementPositionChange,
   onConfirmPlacement,
   onCancelPlacement,
+  isPlacingInProgress = false,
+  onDeleteTrace,
 }) => {
   // Exclude unplaced traces from map marker rendering and bounds calculations
   const validGeoTraces = useMemo(() => {
@@ -209,6 +215,7 @@ export const TraceMap: React.FC<TraceMapProps> = ({
             trace={trace}
             isSelected={trace.id === selectedTraceId && !placement}
             onSelect={placement ? undefined : onSelectTrace}
+            onDelete={onDeleteTrace}
           />
         ))}
 
@@ -256,14 +263,17 @@ export const TraceMap: React.FC<TraceMapProps> = ({
                 type="button"
                 className="cta map-placement-confirm-btn"
                 onClick={onConfirmPlacement}
+                disabled={isPlacingInProgress}
+                aria-busy={isPlacingInProgress}
               >
-                Place Trace Here
+                {isPlacingInProgress ? 'Placing trace...' : 'Place Trace Here'}
               </button>
               {onCancelPlacement && (
                 <button
                   type="button"
                   className="btn-secondary map-placement-cancel-btn"
                   onClick={onCancelPlacement}
+                  disabled={isPlacingInProgress}
                 >
                   Cancel
                 </button>
@@ -317,18 +327,7 @@ export const TraceMap: React.FC<TraceMapProps> = ({
         </div>
       </div>
 
-      {/* Illustrated Compass Rose Badge */}
-      <div className="map-overlay-compass" aria-hidden="true" title="Living Cartography Compass">
-        <svg viewBox="0 0 44 44" fill="none" width="40" height="40">
-          <circle cx="22" cy="22" r="18" stroke="#8c7c6e" strokeWidth="1" strokeDasharray="2 2" />
-          <polygon points="22 6 25 22 22 20 19 22 22 6" fill="#b45309" stroke="#78350f" strokeWidth="0.8" />
-          <polygon points="22 38 25 22 22 24 19 22 22 38" fill="#e7e5e4" stroke="#78716c" strokeWidth="0.8" />
-          <polygon points="6 22 22 25 20 22 22 19 6 22" fill="#e7e5e4" stroke="#78716c" strokeWidth="0.8" />
-          <polygon points="38 22 22 25 24 22 22 19 38 22" fill="#e7e5e4" stroke="#78716c" strokeWidth="0.8" />
-          <circle cx="22" cy="22" r="2.5" fill="#2c221b" />
-          <text x="22" y="5" fontSize="6" fontWeight="bold" textAnchor="middle" fill="#78350f" fontFamily="serif">N</text>
-        </svg>
-      </div>
+
 
       {/* Empty State Overlay */}
       {validGeoTraces.length === 0 && !placement && (

@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Marker, Popup } from 'react-leaflet';
+import { Marker, Popup, useMap } from 'react-leaflet';
 import { Trace } from '../../../types/trace';
 import { createTraceIcon } from '../utils/markerIcons';
 import { TraceDetailCard } from './TraceDetailCard';
@@ -8,13 +8,17 @@ interface TraceMarkerProps {
   trace: Trace;
   isSelected?: boolean;
   onSelect?: (trace: Trace) => void;
+  onDelete?: (trace: Trace) => void;
 }
 
 export const TraceMarker: React.FC<TraceMarkerProps> = ({
   trace,
   isSelected = false,
   onSelect,
+  onDelete,
 }) => {
+  const map = useMap();
+
   if (
     trace.latitude == null ||
     trace.longitude == null ||
@@ -39,7 +43,12 @@ export const TraceMarker: React.FC<TraceMarkerProps> = ({
       }}
     >
       <Popup className="trace-custom-popup" closeButton={false}>
-        <TraceDetailCard trace={trace} isCompact={true} />
+        <TraceDetailCard
+          trace={trace}
+          isCompact={true}
+          onClose={() => map.closePopup()}
+          onDelete={onDelete}
+        />
       </Popup>
     </Marker>
   );

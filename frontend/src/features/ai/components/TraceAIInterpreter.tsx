@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { TraceAIResult } from '../../../types';
 import { interpretTraceObservation, TraceAIError } from '../../../services/api';
 
@@ -8,6 +8,8 @@ interface TraceAIInterpreterProps {
   onTraceReady?: (data: {
     observation: string;
     result?: TraceAIResult | null;
+    photoFile?: File | null;
+    audioFile?: File | null;
   }) => void;
 }
 
@@ -17,11 +19,74 @@ export const TraceAIInterpreter: React.FC<TraceAIInterpreterProps> = ({ onTraceR
   const [result, setResult] = useState<TraceAIResult | null>(null);
   const [errorInfo, setErrorInfo] = useState<{ title: string; message: string } | null>(null);
 
+  // Attachment states
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | null>(null);
+  const [audioFile, setAudioFile] = useState<File | null>(null);
+  const [audioPreviewUrl, setAudioPreviewUrl] = useState<string | null>(null);
+
+  const isInterpretingRef = useRef(false);
+  const isPlacingRef = useRef(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const photoInputRef = useRef<HTMLInputElement>(null);
+  const audioInputRef = useRef<HTMLInputElement>(null);
+
+  // Clean up object URLs on unmount
+  useEffect(() => {
+    return () => {
+      if (photoPreviewUrl) URL.revokeObjectURL(photoPreviewUrl);
+      if (audioPreviewUrl) URL.revokeObjectURL(audioPreviewUrl);
+    };
+  }, [photoPreviewUrl, audioPreviewUrl]);
+
+  const handleChoosePhoto = () => {
+    photoInputRef.current?.click();
+  };
+
+  const handleChooseAudio = () => {
+    audioInputRef.current?.click();
+  };
+
+  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (photoPreviewUrl) URL.revokeObjectURL(photoPreviewUrl);
+      setPhotoFile(file);
+      setPhotoPreviewUrl(URL.createObjectURL(file));
+    }
+  };
+
+  const handleAudioChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (audioPreviewUrl) URL.revokeObjectURL(audioPreviewUrl);
+      setAudioFile(file);
+      setAudioPreviewUrl(URL.createObjectURL(file));
+    }
+  };
+
+  const handleRemovePhoto = () => {
+    if (photoPreviewUrl) URL.revokeObjectURL(photoPreviewUrl);
+    setPhotoFile(null);
+    setPhotoPreviewUrl(null);
+    if (photoInputRef.current) photoInputRef.current.value = '';
+  };
+
+  const handleRemoveAudio = () => {
+    if (audioPreviewUrl) URL.revokeObjectURL(audioPreviewUrl);
+    setAudioFile(null);
+    setAudioPreviewUrl(null);
+    if (audioInputRef.current) audioInputRef.current.value = '';
+  };
+
   const handleInterpret = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!observation.trim()) return;
+    if (isInterpretingRef.current || isLoading || isSubmitting || !observation.trim()) return;
 
+    isInterpretingRef.current = true;
     setIsLoading(true);
+    setIsSubmitting(true);
     setErrorInfo(null);
     setResult(null);
 
@@ -41,8 +106,24 @@ export const TraceAIInterpreter: React.FC<TraceAIInterpreterProps> = ({ onTraceR
         });
       }
     } finally {
+      isInterpretingRef.current = false;
       setIsLoading(false);
+      setIsSubmitting(false);
     }
+  };
+
+  const handlePlaceOnMap = () => {
+    if (isPlacingRef.current || !onTraceReady) return;
+    isPlacingRef.current = true;
+    onTraceReady({
+      observation,
+      result,
+      photoFile,
+      audioFile,
+    });
+    setTimeout(() => {
+      isPlacingRef.current = false;
+    }, 600);
   };
 
   const getCategoryColor = (category: string) => {
@@ -95,13 +176,132 @@ export const TraceAIInterpreter: React.FC<TraceAIInterpreterProps> = ({ onTraceR
           disabled={isLoading}
         />
 
+        {/* Hidden File Inputs */}
+        <input
+          type="file"
+          ref={photoInputRef}
+          accept="image/jpeg,image/png,image/webp,image/gif"
+          style={{ display: 'none' }}
+          onChange={handlePhotoChange}
+          aria-label="Choose a photo"
+        />
+        <input
+          type="file"
+          ref={audioInputRef}
+          accept="audio/mpeg,audio/wav,audio/ogg,audio/webm,audio/x-m4a,audio/aac,audio/flac"
+          style={{ display: 'none' }}
+          onChange={handleAudioChange}
+          aria-label="Choose an audio file"
+        />
+
+        {/* Selected Photo Preview */}
+        {photoFile && photoPreviewUrl && (
+          <div className="attachment-preview-card attachment-preview-photo">
+            <div className="attachment-preview-header">
+              <span className="attachment-type-badge">📷 Photo attachment</span>
+              <button
+                type="button"
+                className="btn-remove-attachment"
+                onClick={handleRemovePhoto}
+              >
+                Remove attachment
+              </button>
+            </div>
+            <div className="attachment-photo-body">
+              <img
+                src={photoPreviewUrl}
+                alt={photoFile.name}
+                className="attachment-photo-thumb"
+              />
+              <div className="attachment-file-details">
+                <strong className="attachment-filename">{photoFile.name}</strong>
+                <small className="attachment-filesize">
+                  {(photoFile.size / 1024).toFixed(1)} KB
+                </small>
+                <button
+                  type="button"
+                  className="btn-change-attachment"
+                  onClick={handleChoosePhoto}
+                >
+                  Choose a photo
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {audioFile && audioPreviewUrl && (
+          <div className="attachment-preview-card attachment-preview-audio">
+            <div className="attachment-preview-header">
+              <span className="attachment-type-badge">🎙️ Audio attachment</span>
+              <button
+                type="button"
+                className="btn-remove-attachment"
+                onClick={handleRemoveAudio}
+              >
+                Remove attachment
+              </button>
+            </div>
+            <div className="attachment-audio-body">
+              <div className="attachment-audio-info">
+                <span className="attachment-audio-icon">🔊</span>
+                <div className="attachment-file-details">
+                  <strong className="attachment-filename">{audioFile.name}</strong>
+                  <small className="attachment-filesize">
+                    {(audioFile.size / 1024).toFixed(1)} KB
+                  </small>
+                </div>
+              </div>
+              <audio
+                controls
+                src={audioPreviewUrl}
+                className="attachment-audio-player"
+              />
+              <button
+                type="button"
+                className="btn-change-attachment"
+                onClick={handleChooseAudio}
+                style={{ alignSelf: 'flex-start', marginTop: '6px' }}
+              >
+                Choose an audio file
+              </button>
+            </div>
+          </div>
+        )}
+
         <div className="ai-form-actions">
+          <div className="trace-media-actions-bar">
+            {!photoFile && (
+              <button
+                type="button"
+                className="btn-media-action"
+                onClick={handleChoosePhoto}
+                title="Choose a photo to attach to this observation"
+              >
+                <span className="media-action-icon">📷</span>
+                <span>Add a photo</span>
+              </button>
+            )}
+
+            {!audioFile && (
+              <button
+                type="button"
+                className="btn-media-action"
+                onClick={handleChooseAudio}
+                title="Choose an audio file to attach to this observation"
+              >
+                <span className="media-action-icon">🎙️</span>
+                <span>Add audio</span>
+              </button>
+            )}
+          </div>
+
           <button
             type="submit"
             className="cta ai-submit-btn"
-            disabled={isLoading || !observation.trim()}
+            disabled={isLoading || isSubmitting || !observation.trim()}
           >
-            {isLoading ? 'Interpreting...' : 'Leave a trace'}
+            {isLoading || isSubmitting ? 'Interpreting...' : 'Leave a trace'}
           </button>
         </div>
       </form>
@@ -125,7 +325,14 @@ export const TraceAIInterpreter: React.FC<TraceAIInterpreterProps> = ({ onTraceR
                 <button
                   type="button"
                   className="btn-secondary"
-                  onClick={() => onTraceReady({ observation, result: null })}
+                  onClick={() =>
+                    onTraceReady({
+                      observation,
+                      result: null,
+                      photoFile,
+                      audioFile,
+                    })
+                  }
                   style={{ fontSize: '1rem', padding: '6px 14px' }}
                 >
                   Place trace without AI &rarr;
@@ -162,7 +369,7 @@ export const TraceAIInterpreter: React.FC<TraceAIInterpreterProps> = ({ onTraceR
               <button
                 type="button"
                 className="cta"
-                onClick={() => onTraceReady({ observation, result })}
+                onClick={handlePlaceOnMap}
                 style={{ fontSize: '1.05rem', padding: '8px 16px' }}
               >
                 Place on Map &rarr;
@@ -174,3 +381,4 @@ export const TraceAIInterpreter: React.FC<TraceAIInterpreterProps> = ({ onTraceR
     </div>
   );
 };
+

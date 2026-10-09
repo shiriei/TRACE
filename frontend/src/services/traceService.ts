@@ -1,48 +1,79 @@
-import { Trace, TraceCategoryFilter } from '../types/trace';
+import { Trace, TraceCategoryFilter, TraceMediaItem } from '../types/trace';
 import { DEMO_TRACES } from './demoTraces';
-import { createBackendTrace, fetchBackendTraces } from './api';
+import {
+  createBackendTrace,
+  fetchBackendTraces,
+  fetchTraceAttachments,
+  getAttachmentContentUrl,
+  uploadTraceAttachment,
+  deleteBackendTrace,
+} from './api';
 
 /**
  * TRACE Data Service
  *
- * Coordinates persistent SQLite traces from TRACE backend and local demo observations.
+ * Coordinates persistent SQLite traces and media storage from TRACE backend.
  */
 class TraceService {
   private traces: Trace[] = [...DEMO_TRACES];
   private isBackendLoaded = false;
 
   /**
-   * Retrieve all recorded traces.
+   * Retrieve all recorded traces with media attachments.
    */
   async getAllTraces(): Promise<Trace[]> {
     if (!this.isBackendLoaded) {
       try {
         const backendTraces = await fetchBackendTraces();
         if (Array.isArray(backendTraces)) {
-          const mapped: Trace[] = backendTraces.map((b) => ({
-            id: b.id,
-            title: b.title,
-            description: b.summary || b.observation,
-            category: b.category,
-            latitude: b.latitude,
-            longitude: b.longitude,
-            locationMode: b.location_mode,
-            location_mode: b.location_mode,
-            createdAt: b.created_at,
-            observation: b.observation,
-            summary: b.summary,
-            tags: b.tags || [],
-            sensory_type: b.sensory_type,
-            confidence: b.confidence,
-            photo_path: b.photo_path,
-            audio_path: b.audio_path,
-            media: [],
-          }));
+          if (backendTraces.length > 0) {
+            // Load persistent traces and their media attachments
+            const mapped: Trace[] = await Promise.all(
+              backendTraces.map(async (b) => {
+                let media: TraceMediaItem[] = [];
+                try {
+                  const atts = await fetchTraceAttachments(b.id);
+                  if (Array.isArray(atts)) {
+                    media = atts.map((att) => ({
+                      id: att.id,
+                      type: att.media_type,
+                      uri: getAttachmentContentUrl(b.id, att.id),
+                      filename: att.original_filename || att.stored_filename,
+                      createdAt: att.created_at,
+                      mimeType: att.mime_type,
+                      fileSizeBytes: att.file_size_bytes,
+                    }));
+                  }
+                } catch {
+                  media = [];
+                }
 
-          // Merge: backend traces first, then demo traces not conflicting
-          const existingIds = new Set(mapped.map((t) => t.id));
-          const remainingDemo = this.traces.filter((t) => !existingIds.has(t.id));
-          this.traces = [...mapped, ...remainingDemo];
+                return {
+                  id: b.id,
+                  title: b.title,
+                  description: b.summary || b.observation,
+                  category: b.category,
+                  latitude: b.latitude,
+                  longitude: b.longitude,
+                  locationMode: b.location_mode,
+                  location_mode: b.location_mode,
+                  createdAt: b.created_at,
+                  observation: b.observation,
+                  summary: b.summary,
+                  tags: b.tags || [],
+                  sensory_type: b.sensory_type,
+                  confidence: b.confidence,
+                  photo_path: b.photo_path,
+                  audio_path: b.audio_path,
+                  media,
+                };
+              })
+            );
+            this.traces = mapped;
+          } else {
+            // New database without traces: seed with demo observations
+            this.traces = [...DEMO_TRACES];
+          }
           this.isBackendLoaded = true;
         }
       } catch {
@@ -93,10 +124,18 @@ class TraceService {
   }
 
   /**
-   * Add a new trace, persisting to backend SQLite when reachable.
+   * Add a new trace, persisting to backend SQLite and uploading attachments.
    */
-  async addTrace(newTrace: Omit<Trace, 'id' | 'createdAt'>): Promise<Trace> {
-    const locationMode = newTrace.locationMode || newTrace.location_mode || (newTrace.latitude != null ? 'manual' : 'unplaced');
+  async addTraceWithAttachments(
+    newTrace: Omit<Trace, 'id' | 'createdAt'>,
+    photoFile?: File | null,
+    audioFile?: File | null
+  ): Promise<{ trace: Trace; uploadErrors: string[] }> {
+    const locationMode =
+      newTrace.locationMode ||
+      newTrace.location_mode ||
+      (newTrace.latitude != null ? 'manual' : 'unplaced');
+    const uploadErrors: string[] = [];
 
     try {
       const backendData = await createBackendTrace({
@@ -110,6 +149,48 @@ class TraceService {
         tags: newTrace.tags,
         sensory_type: newTrace.sensory_type,
       });
+
+      const mediaItems: TraceMediaItem[] = [];
+
+      // 1. Upload photo attachment if selected
+      if (photoFile) {
+        try {
+          const photoAtt = await uploadTraceAttachment(backendData.id, photoFile);
+          mediaItems.push({
+            id: photoAtt.id,
+            type: 'photo',
+            uri: getAttachmentContentUrl(backendData.id, photoAtt.id),
+            filename: photoAtt.original_filename || photoAtt.stored_filename,
+            createdAt: photoAtt.created_at,
+            mimeType: photoAtt.mime_type,
+            fileSizeBytes: photoAtt.file_size_bytes,
+          });
+        } catch (err: any) {
+          uploadErrors.push(
+            `Photo upload failed: ${err.message || 'Could not save photo attachment.'}`
+          );
+        }
+      }
+
+      // 2. Upload audio attachment if selected
+      if (audioFile) {
+        try {
+          const audioAtt = await uploadTraceAttachment(backendData.id, audioFile);
+          mediaItems.push({
+            id: audioAtt.id,
+            type: 'audio',
+            uri: getAttachmentContentUrl(backendData.id, audioAtt.id),
+            filename: audioAtt.original_filename || audioAtt.stored_filename,
+            createdAt: audioAtt.created_at,
+            mimeType: audioAtt.mime_type,
+            fileSizeBytes: audioAtt.file_size_bytes,
+          });
+        } catch (err: any) {
+          uploadErrors.push(
+            `Audio upload failed: ${err.message || 'Could not save audio attachment.'}`
+          );
+        }
+      }
 
       const trace: Trace = {
         ...newTrace,
@@ -126,11 +207,11 @@ class TraceService {
         tags: backendData.tags || [],
         sensory_type: backendData.sensory_type,
         confidence: backendData.confidence,
-        media: newTrace.media || [],
+        media: mediaItems,
       };
 
       this.traces = [trace, ...this.traces.filter((t) => t.id !== trace.id)];
-      return trace;
+      return { trace, uploadErrors };
     } catch {
       // Local fallback
       const trace: Trace = {
@@ -142,9 +223,28 @@ class TraceService {
         media: newTrace.media || [],
       };
       this.traces = [trace, ...this.traces];
-      return trace;
+      return { trace, uploadErrors: ['Backend unavailable; saved in local memory.'] };
     }
+  }
+
+  /**
+   * Add a new trace without attachments (backward compatibility).
+   */
+  async addTrace(newTrace: Omit<Trace, 'id' | 'createdAt'>): Promise<Trace> {
+    const res = await this.addTraceWithAttachments(newTrace);
+    return res.trace;
+  }
+
+  /**
+   * Permanently delete a trace by ID from persistent storage and local state.
+   */
+  async deleteTrace(id: string): Promise<void> {
+    if (!id.startsWith('demo-')) {
+      await deleteBackendTrace(id);
+    }
+    this.traces = this.traces.filter((t) => t.id !== id);
   }
 }
 
 export const traceService = new TraceService();
+

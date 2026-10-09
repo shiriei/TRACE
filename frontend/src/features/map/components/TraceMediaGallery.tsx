@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { TraceMediaItem, AudioMediaItem, VoiceMediaItem, VideoMediaItem, PhotoMediaItem } from '../../../types/trace';
 
 interface TraceMediaGalleryProps {
@@ -13,7 +13,6 @@ function formatDuration(seconds?: number): string {
 }
 
 export const TraceMediaGallery: React.FC<TraceMediaGalleryProps> = ({ media }) => {
-  const [playingMediaId, setPlayingMediaId] = useState<string | null>(null);
 
   if (!media || media.length === 0) {
     return (
@@ -86,30 +85,12 @@ export const TraceMediaGallery: React.FC<TraceMediaGalleryProps> = ({ media }) =
           if (item.type === 'audio' || item.type === 'voice') {
             const audio = item as AudioMediaItem | VoiceMediaItem;
             const isVoice = item.type === 'voice';
-            const isPlaying = playingMediaId === audio.id;
 
             return (
               <div
                 key={audio.id}
                 className={`field-media-item field-media-audio ${isVoice ? 'field-media-voice' : ''}`}
               >
-                <button
-                  type="button"
-                  className="field-audio-play-btn"
-                  onClick={() => setPlayingMediaId(isPlaying ? null : audio.id)}
-                  aria-label={isPlaying ? 'Pause audio' : 'Play audio capture'}
-                >
-                  {isPlaying ? (
-                    <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
-                      <rect x="6" y="4" width="4" height="16" />
-                      <rect x="14" y="4" width="4" height="16" />
-                    </svg>
-                  ) : (
-                    <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
-                      <polygon points="5 3 19 12 5 21 5 3" />
-                    </svg>
-                  )}
-                </button>
                 <div className="field-audio-details">
                   <div className="field-audio-headline">
                     <span className="field-audio-badge">
@@ -127,18 +108,19 @@ export const TraceMediaGallery: React.FC<TraceMediaGalleryProps> = ({ media }) =
                   )}
                 </div>
 
-                {/* If audio has local URI, support native playback */}
+                {/* Audio playback support */}
                 {audio.uri && (
                   <audio
                     src={audio.uri}
-                    controls={false}
-                    onPlay={() => setPlayingMediaId(audio.id)}
-                    onEnded={() => setPlayingMediaId(null)}
+                    controls={true}
+                    className="field-native-audio-player"
+                    style={{ width: '100%', marginTop: '8px', height: '36px' }}
                   />
                 )}
               </div>
             );
           }
+
 
           return (
             <div key={item.id} className="field-media-item field-media-generic">

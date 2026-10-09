@@ -113,6 +113,7 @@ htmlcov/
 logs/
 *.pid
 runtime/
+media/
 temp/
 tmp/
 *.sqlite

@@ -66,6 +66,22 @@ class SQLiteDatabase:
                 )
 
             conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS attachments (
+                    id TEXT PRIMARY KEY,
+                    trace_id TEXT NOT NULL,
+                    media_type TEXT NOT NULL,
+                    stored_filename TEXT NOT NULL,
+                    original_filename TEXT,
+                    mime_type TEXT NOT NULL,
+                    file_size_bytes INTEGER NOT NULL,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (trace_id) REFERENCES traces(id) ON DELETE CASCADE
+                );
+                """
+            )
+
+            conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_traces_created_at ON traces(created_at DESC);"
             )
             conn.execute(
@@ -74,7 +90,14 @@ class SQLiteDatabase:
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_traces_location_mode ON traces(location_mode);"
             )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_attachments_trace_id ON attachments(trace_id);"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_attachments_created_at ON attachments(created_at DESC);"
+            )
             logger.info("TRACE SQLite database initialized at %s", self.db_path)
+
 
     @contextmanager
     def get_connection(self) -> Generator[sqlite3.Connection, None, None]:

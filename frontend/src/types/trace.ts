@@ -164,3 +164,20 @@ export interface AIErrorDetail {
   message: string;
 }
 
+export interface TraceAttachment {
+  id: string;
+  trace_id: string;
+  media_type: 'photo' | 'audio';
+  stored_filename: string;
+  original_filename?: string | null;
+  mime_type: string;
+  file_size_bytes: number;
+  created_at: string;
+}
+
+export interface AttachmentDeleteResponse {
+  message: string;
+  id: string;
+  trace_id: string;
+}
+
