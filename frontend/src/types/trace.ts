@@ -7,6 +7,8 @@
  * Designed as a whimsical, lasting personal exploration memory.
  */
 
+import { StreakEvaluationResult } from './sticker';
+
 export type TraceCategory = 'Nature' | 'Sound' | 'Structure' | 'Mystery' | 'Personal';
 
 export const TRACE_CATEGORIES: readonly TraceCategory[] = [
@@ -109,6 +111,7 @@ export interface Trace {
   photo_path?: string | null;
   audio_path?: string | null;
   media?: TraceMediaItem[]; // Future-proof capture array (empty in Phase 1 demo data)
+  reward?: StreakEvaluationResult | null;
 
   /**
    * Extensible slot for Phase 2+ Local AI-generated metadata.
@@ -131,6 +134,7 @@ export interface TraceCreatePayload {
   summary?: string;
   tags?: string[];
   sensory_type?: SensoryType;
+  tz_offset_minutes?: number;
 }
 
 /**

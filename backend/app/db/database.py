@@ -82,6 +82,39 @@ class SQLiteDatabase:
             )
 
             conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS sticker_ownership (
+                    id TEXT PRIMARY KEY,
+                    sticker_id TEXT NOT NULL UNIQUE,
+                    unlocked_at TEXT NOT NULL,
+                    unlock_reason TEXT NOT NULL,
+                    source TEXT NOT NULL
+                );
+                """
+            )
+
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS daily_reward_claims (
+                    claim_date TEXT PRIMARY KEY,
+                    sticker_id TEXT NOT NULL,
+                    claimed_at TEXT NOT NULL
+                );
+                """
+            )
+
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS milestone_claims (
+                    milestone_id TEXT PRIMARY KEY,
+                    streak_threshold INTEGER NOT NULL,
+                    claimed_at TEXT NOT NULL,
+                    pack_id TEXT NOT NULL
+                );
+                """
+            )
+
+            conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_traces_created_at ON traces(created_at DESC);"
             )
             conn.execute(
@@ -95,6 +128,12 @@ class SQLiteDatabase:
             )
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_attachments_created_at ON attachments(created_at DESC);"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_sticker_ownership_sticker_id ON sticker_ownership(sticker_id);"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_sticker_ownership_unlocked_at ON sticker_ownership(unlocked_at DESC);"
             )
             logger.info("TRACE SQLite database initialized at %s", self.db_path)
 

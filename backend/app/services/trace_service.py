@@ -59,6 +59,16 @@ class TraceService:
     def media_storage(self) -> MediaStorageService:
         return self._media_storage or get_media_storage()
 
+    @property
+    def sticker_service(self):
+        from app.repositories.sticker_repository import StickerRepository, get_sticker_repository
+        from app.services.sticker_service import StickerService
+
+        sticker_repo = get_sticker_repository()
+        if self.repository and self.repository.db:
+            sticker_repo = StickerRepository(database=self.repository.db)
+        return StickerService(repository=sticker_repo, trace_repository=self.repository)
+
     def _make_dedup_key(self, data: TraceCreate) -> str:
         obs = data.observation.strip()
         lat = round(data.latitude, 6) if data.latitude is not None else None
@@ -155,29 +165,51 @@ class TraceService:
 
         # Step 2: Call the existing AI interpretation service
         try:
-            ai_result: TraceAIResult = await self.ai_svc.interpret_observation(data.observation)
+            ai_result = await self.ai_svc.interpret_observation(data.observation)
 
             # Step 3: Save returned category/title/summary/tags/sensory_type/confidence
+            # Category Precedence Rule:
+            # If the user explicitly provided a category (data.category is not None), that category is authoritative.
+            # AI predictions must not replace the user's explicit choice.
+            # If no category was selected, use the AI-predicted category as the fallback.
+            final_category = data.category if data.category is not None else ai_result.category
+
             updated_trace = self.repository.update_ai_metadata(
                 trace_id=trace_id,
-                category=data.category or ai_result.category,
+                category=final_category,
                 title=data.title or ai_result.title,
                 summary=data.summary or ai_result.summary,
                 tags=data.tags if data.tags is not None else ai_result.tags,
                 sensory_type=data.sensory_type or ai_result.sensory_type,
                 confidence=ai_result.confidence,
             )
-            if updated_trace:
-                return updated_trace
         except Exception as exc:
             logger.warning(
                 "Local AI interpretation unavailable or failed for trace %s: %s. Trace retained with fallback metadata.",
                 trace_id,
                 exc,
             )
+            updated_trace = None
 
-        # Trace remains successfully saved if LM Studio was unavailable
-        return saved_trace
+        # Step 4: Safely evaluate exploration streak and rewards without breaking trace creation
+        reward_result = None
+        try:
+            reward_result = self.sticker_service.evaluate_rewards(
+                tz_offset_minutes=data.tz_offset_minutes
+            )
+        except Exception as sticker_err:
+            logger.error(
+                "Error evaluating exploration rewards after trace %s: %s",
+                trace_id,
+                sticker_err,
+                exc_info=True,
+            )
+
+        # Trace remains successfully saved regardless of AI or sticker status
+        final_trace = updated_trace if updated_trace is not None else saved_trace
+        if reward_result:
+            final_trace.reward = reward_result
+        return final_trace
 
     def get_trace(self, trace_id: str) -> Optional[TraceModel]:
         """Retrieve a single trace by ID."""

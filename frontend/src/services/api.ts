@@ -1,4 +1,13 @@
-import { AIStatusResponse, HealthResponse, TraceAIResult } from '../types';
+import {
+  AIStatusResponse,
+  HealthResponse,
+  TraceAIResult,
+  StickerDefinition,
+  StickerPackDefinition,
+  OwnedSticker,
+  StreakSummaryResponse,
+  StreakEvaluationResult,
+} from '../types';
 
 /**
  * TRACE API Configuration
@@ -13,6 +22,7 @@ export const API_ENDPOINTS = {
   aiStatus: `${API_BASE_URL}/api/v1/ai/status`,
   aiInterpret: `${API_BASE_URL}/api/v1/ai/interpret-trace`,
   traces: `${API_BASE_URL}/api/v1/traces`,
+  stickers: `${API_BASE_URL}/api/v1/stickers`,
 } as const;
 
 /**
@@ -157,14 +167,22 @@ export async function createBackendTrace(payload: {
   summary?: string;
   tags?: string[];
   sensory_type?: string;
+  tz_offset_minutes?: number;
 }): Promise<any> {
+  const fullPayload = {
+    ...payload,
+    tz_offset_minutes:
+      payload.tz_offset_minutes !== undefined
+        ? payload.tz_offset_minutes
+        : new Date().getTimezoneOffset(),
+  };
   const response = await fetch(API_ENDPOINTS.traces, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Accept: 'application/json',
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(fullPayload),
   });
 
   if (!response.ok) {
@@ -290,6 +308,136 @@ export async function deleteBackendTrace(
         ? errorBody.detail
         : `Failed to delete trace: ${response.status}`
     );
+  }
+
+  return response.json();
+}
+
+/**
+ * Retrieve all stickers from the Sticker Garden catalogue.
+ */
+export async function fetchStickerCatalogue(theme?: string): Promise<StickerDefinition[]> {
+  const url = theme
+    ? `${API_ENDPOINTS.stickers}?theme=${encodeURIComponent(theme)}`
+    : API_ENDPOINTS.stickers;
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch sticker catalogue: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Retrieve all reward pack definitions.
+ */
+export async function fetchStickerPacks(): Promise<StickerPackDefinition[]> {
+  const response = await fetch(`${API_ENDPOINTS.stickers}/packs`, {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch sticker packs: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Retrieve the user's currently earned sticker collection.
+ */
+export async function fetchUserStickerCollection(): Promise<OwnedSticker[]> {
+  const response = await fetch(`${API_ENDPOINTS.stickers}/collection`, {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch user sticker collection: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Grant a sticker to the user's collection.
+ */
+export async function grantUserSticker(payload: {
+  sticker_id: string;
+  unlock_reason?: string;
+  source?: string;
+}): Promise<OwnedSticker> {
+  const response = await fetch(`${API_ENDPOINTS.stickers}/collection/grant`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}));
+    throw new Error(
+      typeof errorBody.detail === 'string'
+        ? errorBody.detail
+        : `Failed to grant sticker: ${response.status}`
+    );
+  }
+
+  return response.json();
+}
+
+/**
+ * Retrieve authoritative exploration streak summary derived from traces.
+ */
+export async function fetchStreakSummary(
+  tzOffsetMinutes?: number
+): Promise<StreakSummaryResponse> {
+  const offset = tzOffsetMinutes !== undefined ? tzOffsetMinutes : new Date().getTimezoneOffset();
+  const url = `${API_ENDPOINTS.stickers}/streak?tz_offset_minutes=${encodeURIComponent(offset)}`;
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch streak summary: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Trigger exploration streak evaluation and claim eligible rewards.
+ */
+export async function evaluateStreakRewards(
+  tzOffsetMinutes?: number
+): Promise<StreakEvaluationResult> {
+  const offset = tzOffsetMinutes !== undefined ? tzOffsetMinutes : new Date().getTimezoneOffset();
+  const url = `${API_ENDPOINTS.stickers}/streak/evaluate?tz_offset_minutes=${encodeURIComponent(offset)}`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to evaluate streak rewards: ${response.status}`);
   }
 
   return response.json();

@@ -34,3 +34,4 @@ export interface PlannedModule {
 }
 
 export * from './trace';
+export * from './sticker';

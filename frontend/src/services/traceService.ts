@@ -1,4 +1,5 @@
 import { Trace, TraceCategoryFilter, TraceMediaItem } from '../types/trace';
+import { StreakEvaluationResult } from '../types/sticker';
 import { DEMO_TRACES } from './demoTraces';
 import {
   createBackendTrace,
@@ -130,7 +131,7 @@ class TraceService {
     newTrace: Omit<Trace, 'id' | 'createdAt'>,
     photoFile?: File | null,
     audioFile?: File | null
-  ): Promise<{ trace: Trace; uploadErrors: string[] }> {
+  ): Promise<{ trace: Trace; uploadErrors: string[]; reward?: StreakEvaluationResult | null; backendSaved?: boolean }> {
     const locationMode =
       newTrace.locationMode ||
       newTrace.location_mode ||
@@ -208,10 +209,11 @@ class TraceService {
         sensory_type: backendData.sensory_type,
         confidence: backendData.confidence,
         media: mediaItems,
+        reward: backendData.reward || null,
       };
 
       this.traces = [trace, ...this.traces.filter((t) => t.id !== trace.id)];
-      return { trace, uploadErrors };
+      return { trace, uploadErrors, reward: backendData.reward || null, backendSaved: true };
     } catch {
       // Local fallback
       const trace: Trace = {
@@ -223,7 +225,7 @@ class TraceService {
         media: newTrace.media || [],
       };
       this.traces = [trace, ...this.traces];
-      return { trace, uploadErrors: ['Backend unavailable; saved in local memory.'] };
+      return { trace, uploadErrors: ['Backend unavailable; saved in local memory.'], backendSaved: false };
     }
   }
 

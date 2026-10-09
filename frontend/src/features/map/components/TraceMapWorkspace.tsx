@@ -5,6 +5,14 @@ import { TraceMap, PlacementState } from './TraceMap';
 import { formatTimestamp } from '../../../utils/formatters';
 import { TRACE_ILLUSTRATIONS, CATEGORY_MEANINGS } from './TraceThumbnails';
 import { TraceAIInterpreter } from '../../ai';
+import { StickerGardenJourney, DailyRewardModal } from '../../stickers';
+import { OwnedSticker, StickerPackDefinition } from '../../../types/sticker';
+import { broadcastTraceSaved } from '../../../services/crossTabSync';
+
+export interface TraceMapWorkspaceProps {
+  activeTab?: 'map' | 'traces' | 'log' | 'stickers';
+  onTabChange?: (tab: 'map' | 'traces' | 'log' | 'stickers') => void;
+}
 
 interface PendingTrace {
   observation: string;
@@ -69,14 +77,26 @@ const FIVE_TRACE_WAYS = [
   },
 ];
 
-export const TraceMapWorkspace: React.FC = () => {
+export const TraceMapWorkspace: React.FC<TraceMapWorkspaceProps> = ({
+  activeTab,
+  onTabChange,
+}) => {
   const [allTraces, setAllTraces] = useState<Trace[]>([]);
   const [activeFilter, setActiveFilter] = useState<TraceCategoryFilter>('All');
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null);
   const [categoryCounts, setCategoryCounts] = useState<Record<string, number>>({});
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [recenterTrigger, setRecenterTrigger] = useState<number>(0);
-  const [activeNavTab, setActiveNavTab] = useState<'map' | 'traces' | 'log' | 'settings'>('map');
+  const [internalNavTab, setInternalNavTab] = useState<'map' | 'traces' | 'log' | 'stickers'>('map');
+  const activeNavTab = activeTab ?? internalNavTab;
+
+  const handleNavTabChange = (tab: 'map' | 'traces' | 'log' | 'stickers') => {
+    if (onTabChange) {
+      onTabChange(tab);
+    } else {
+      setInternalNavTab(tab);
+    }
+  };
 
   // Trace placement state
   const [pendingTrace, setPendingTrace] = useState<PendingTrace | null>(null);
@@ -86,6 +106,38 @@ export const TraceMapWorkspace: React.FC = () => {
   const [isPlacingInProgress, setIsPlacingInProgress] = useState<boolean>(false);
   const isConfirmingRef = useRef<boolean>(false);
   const [interpreterKey, setInterpreterKey] = useState<number>(0);
+
+  // Daily Reward / Milestone celebration modal state
+  const [celebrationReward, setCelebrationReward] = useState<{
+    awardedSticker?: OwnedSticker | null;
+    streak: number;
+    longestStreak: number;
+    milestonesUnlocked: StickerPackDefinition[];
+    isPoolExhausted?: boolean;
+  } | null>(null);
+
+  // Unified reward celebration handler for both unplaced and map-placed traces
+  const handleRewardCelebration = useCallback((effectiveReward?: any) => {
+    if (!effectiveReward) return;
+
+    const hasDailySticker = Boolean(effectiveReward.daily_sticker_awarded);
+    const hasMilestones = (effectiveReward.milestones_unlocked || []).length > 0;
+    const isStreakExtension = Boolean(effectiveReward.streak_extended);
+
+    // Open celebration if:
+    // 1. A daily sticker is awarded, OR
+    // 2. One or more milestone packs are unlocked, OR
+    // 3. This qualifying trace extended the streak (including when starter pool is exhausted)
+    if (hasDailySticker || hasMilestones || isStreakExtension) {
+      setCelebrationReward({
+        awardedSticker: effectiveReward.daily_sticker_awarded || null,
+        streak: effectiveReward.streak_summary.current_streak,
+        longestStreak: effectiveReward.streak_summary.longest_streak,
+        milestonesUnlocked: effectiveReward.milestones_unlocked || [],
+        isPoolExhausted: !hasDailySticker && isStreakExtension,
+      });
+    }
+  }, []);
 
   // Delete trace state
   const [traceToDelete, setTraceToDelete] = useState<Trace | null>(null);
@@ -147,20 +199,31 @@ export const TraceMapWorkspace: React.FC = () => {
       result?: TraceAIResult | null;
       photoFile?: File | null;
       audioFile?: File | null;
+      selectedCategory?: TraceCategory | null;
     }) => {
+      // Category Precedence Rule:
+      // 1. Explicitly selected category takes highest precedence (data.selectedCategory).
+      // 2. AI result category is fallback if available (data.result?.category).
+      // 3. If active filter is a specific category (not 'All'), use that.
+      // 4. Default to 'Personal'.
+      const chosenCategory: TraceCategory =
+        data.selectedCategory ||
+        (data.result?.category as TraceCategory) ||
+        (activeFilter !== 'All' ? activeFilter : 'Personal');
+
       setPendingTrace({
         observation: data.observation,
-        category: data.result?.category || 'Personal',
+        category: chosenCategory,
         title: data.result?.title || data.observation.slice(0, 50),
         summary: data.result?.summary || data.observation,
         tags: data.result?.tags || [],
-        sensory_type: data.result?.sensory_type || 'visual',
+        sensory_type: data.result?.sensory_type || (data.audioFile ? 'auditory' : 'visual'),
         photoFile: data.photoFile || null,
         audioFile: data.audioFile || null,
       });
       setShowPlacementModal(true);
     },
-    []
+    [activeFilter]
   );
 
   // Option 1: GPS Placement
@@ -208,7 +271,7 @@ export const TraceMapWorkspace: React.FC = () => {
     setPlacement(null);
 
     try {
-      const { trace, uploadErrors } = await traceService.addTraceWithAttachments(
+      const { trace, uploadErrors, reward, backendSaved } = await traceService.addTraceWithAttachments(
         {
           observation: pendingTrace.observation,
           title: pendingTrace.title || pendingTrace.observation.slice(0, 50),
@@ -236,13 +299,19 @@ export const TraceMapWorkspace: React.FC = () => {
       setCategoryCounts(counts);
       setPendingTrace(null);
       setInterpreterKey((prev) => prev + 1);
+      if (backendSaved) {
+        broadcastTraceSaved();
+      }
+
+      // If backend confirmed a daily sticker or milestone reward or streak extension, trigger modal
+      handleRewardCelebration(reward || (trace as any).reward);
     } catch (err: any) {
       setUploadAlert(`Failed to save trace: ${err.message || 'Unknown error'}. Please try again.`);
     } finally {
       isConfirmingRef.current = false;
       setIsPlacingInProgress(false);
     }
-  }, [pendingTrace]);
+  }, [pendingTrace, handleRewardCelebration]);
 
   // Confirm placement from Map banner
   const handleConfirmPlacement = useCallback(async () => {
@@ -251,7 +320,7 @@ export const TraceMapWorkspace: React.FC = () => {
     setIsPlacingInProgress(true);
 
     try {
-      const { trace, uploadErrors } = await traceService.addTraceWithAttachments(
+      const { trace, uploadErrors, reward, backendSaved } = await traceService.addTraceWithAttachments(
         {
           observation: pendingTrace.observation,
           title: pendingTrace.title || pendingTrace.observation.slice(0, 50),
@@ -282,6 +351,12 @@ export const TraceMapWorkspace: React.FC = () => {
       setPlacement(null);
       setPendingTrace(null);
       setInterpreterKey((prev) => prev + 1);
+      if (backendSaved) {
+        broadcastTraceSaved();
+      }
+
+      // If backend confirmed a daily sticker or milestone reward or streak extension, trigger modal
+      handleRewardCelebration(reward || (trace as any).reward);
     } catch (err: any) {
       // If saving fails: retain pendingTrace and placement state so user can retry!
       setUploadAlert(`Failed to place trace: ${err.message || 'Unknown error'}. Please try again.`);
@@ -289,7 +364,7 @@ export const TraceMapWorkspace: React.FC = () => {
       isConfirmingRef.current = false;
       setIsPlacingInProgress(false);
     }
-  }, [placement, pendingTrace]);
+  }, [placement, pendingTrace, handleRewardCelebration]);
 
   const handleCancelPlacement = useCallback(() => {
     setPlacement(null);
@@ -509,9 +584,10 @@ export const TraceMapWorkspace: React.FC = () => {
         <nav className="paper" aria-label="Main">
           <a
             href="#traces"
+            aria-current={activeNavTab === 'traces' ? 'page' : undefined}
             onClick={(e) => {
               e.preventDefault();
-              setActiveNavTab('traces');
+              handleNavTabChange('traces');
               document.getElementById('notes')?.scrollIntoView({ behavior: 'smooth' });
             }}
           >
@@ -527,7 +603,7 @@ export const TraceMapWorkspace: React.FC = () => {
             aria-current={activeNavTab === 'map' ? 'page' : undefined}
             onClick={(e) => {
               e.preventDefault();
-              setActiveNavTab('map');
+              handleNavTabChange('map');
               document.getElementById('map')?.scrollIntoView({ behavior: 'smooth' });
             }}
           >
@@ -540,9 +616,10 @@ export const TraceMapWorkspace: React.FC = () => {
 
           <a
             href="#how"
+            aria-current={activeNavTab === 'log' ? 'page' : undefined}
             onClick={(e) => {
               e.preventDefault();
-              setActiveNavTab('log');
+              handleNavTabChange('log');
               document.getElementById('how')?.scrollIntoView({ behavior: 'smooth' });
             }}
           >
@@ -553,23 +630,32 @@ export const TraceMapWorkspace: React.FC = () => {
           </a>
 
           <a
-            href="#join"
+            href="#stickers"
+            aria-current={activeNavTab === 'stickers' ? 'page' : undefined}
             onClick={(e) => {
               e.preventDefault();
-              setActiveNavTab('settings');
-              document.getElementById('join')?.scrollIntoView({ behavior: 'smooth' });
+              handleNavTabChange('stickers');
             }}
           >
             <svg viewBox="0 0 24 24">
               <circle cx="12" cy="12" r="3" />
-              <path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1" />
+              <path d="M12 2a3 3 0 0 0-3 3c0 1.66 1.34 3 3 3s3-1.34 3-3a3 3 0 0 0-3-3z" />
+              <path d="M12 22a3 3 0 0 0 3-3c0-1.66-1.34-3-3-3s-3 1.34-3 3a3 3 0 0 0 3 3z" />
+              <path d="M2 12a3 3 0 0 0 3 3c1.66 0 3-1.34 3-3s-1.34-3-3-3a3 3 0 0 0-3 3z" />
+              <path d="M22 12a3 3 0 0 0-3-3c-1.66 0-3 1.34-3 3s1.34 3 3 3a3 3 0 0 0 3-3z" />
             </svg>
-            Settings
+            Stickers
           </a>
         </nav>
 
-        {/* Center: Living Map Card */}
-        <section className="paper mapcard" aria-label="Living map">
+        {activeNavTab === 'stickers' ? (
+          <div className="shell-stickers-view">
+            <StickerGardenJourney onBackToMap={() => handleNavTabChange('map')} />
+          </div>
+        ) : (
+          <>
+            {/* Center: Living Map Card */}
+            <section className="paper mapcard" aria-label="Living map">
           {feedbackAlert && (
             <div
               className={`feedback-alert-banner feedback-alert--${feedbackAlert.type}`}
@@ -826,6 +912,8 @@ export const TraceMapWorkspace: React.FC = () => {
             })}
           </div>
         </aside>
+          </>
+        )}
       </main>
 
       {/* Slogan */}
@@ -839,7 +927,25 @@ export const TraceMapWorkspace: React.FC = () => {
         <p>Notice the world through different lenses. Every small discovery can become a trace.</p>
         <div className="traceWaysGrid">
           {FIVE_TRACE_WAYS.map((way) => (
-            <div key={way.key} className="traceWayCard">
+            <div
+              key={way.key}
+              className="traceWayCard"
+              role="button"
+              tabIndex={0}
+              onClick={() => {
+                setActiveFilter(way.title as TraceCategory);
+                document.getElementById('ai-interpreter')?.scrollIntoView({ behavior: 'smooth' });
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  setActiveFilter(way.title as TraceCategory);
+                  document.getElementById('ai-interpreter')?.scrollIntoView({ behavior: 'smooth' });
+                }
+              }}
+              style={{ cursor: 'pointer' }}
+              title={`Focus on ${way.title} and create a trace`}
+            >
               <div
                 className="traceWayIcon"
                 style={{ borderColor: way.color, color: way.color }}
@@ -866,7 +972,11 @@ export const TraceMapWorkspace: React.FC = () => {
       <section className="row" id="join">
         <h2>Your street has stories</h2>
         <p>Notice something small outside and let local Gemma 3 4B interpret it into a trace.</p>
-        <TraceAIInterpreter key={interpreterKey} onTraceReady={handleStartPlacement} />
+        <TraceAIInterpreter
+          key={interpreterKey}
+          initialCategory={activeFilter !== 'All' ? activeFilter : null}
+          onTraceReady={handleStartPlacement}
+        />
       </section>
 
       {/* Whimsical Trace Placement Method Prompt */}
@@ -1000,6 +1110,30 @@ export const TraceMapWorkspace: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Daily Reward Celebration Modal */}
+      {celebrationReward && (
+        <DailyRewardModal
+          isOpen={!!celebrationReward}
+          awardedSticker={celebrationReward.awardedSticker}
+          streak={celebrationReward.streak}
+          longestStreak={celebrationReward.longestStreak}
+          milestonesUnlocked={celebrationReward.milestonesUnlocked}
+          isPoolExhausted={celebrationReward.isPoolExhausted}
+          onClose={() => setCelebrationReward(null)}
+          onSeeCollection={() => {
+            setCelebrationReward(null);
+            handleNavTabChange('stickers');
+            setTimeout(() => {
+              const el = document.getElementById('my-collection');
+              if (el) {
+                el.scrollIntoView({ behavior: 'smooth' });
+                el.focus?.();
+              }
+            }, 80);
+          }}
+        />
       )}
 
       {/* Critters in the margins that slide in on scroll */}

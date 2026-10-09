@@ -749,3 +749,222 @@ def test_cleanup_duplicate_creation_events(test_db_repo):
     assert test_db_repo.get_by_id("trace-separate-03") is not None
 
 
+# =====================================================================
+# Category Precedence Tests
+# =====================================================================
+
+def test_explicit_sound_selection_preserved_when_ai_predicts_nature(client, test_db_repo):
+    """Explicit 'Sound' selection remains 'Sound' even when AI classifies observation as 'Nature'."""
+    ai_result = TraceAIResult(
+        category="Nature",
+        title="Morning Birdsong",
+        summary="A chorus of birds calling across the morning fog.",
+        tags=["birds", "fog", "morning"],
+        sensory_type="auditory",
+        confidence=0.92,
+    )
+
+    with patch("app.services.trace_service.ai_service.interpret_observation", new_callable=AsyncMock) as mock_ai:
+        mock_ai.return_value = ai_result
+        payload = {
+            "observation": "I heard multiple birds calling across the dense morning fog.",
+            "category": "Sound",
+            "latitude": 51.5074,
+            "longitude": -0.1278,
+            "location_mode": "manual",
+        }
+        response = client.post("/api/v1/traces", json=payload)
+        assert response.status_code == 201
+        data = response.json()
+
+        # The returned and persisted category must remain Sound
+        assert data["category"] == "Sound"
+        # AI metadata (title, summary, tags) is still generated
+        assert data["title"] == "Morning Birdsong"
+        assert data["summary"] == "A chorus of birds calling across the morning fog."
+        assert "birds" in data["tags"]
+
+        # Verify database record directly
+        db_trace = test_db_repo.get_by_id(data["id"])
+        assert db_trace is not None
+        assert db_trace.category == "Sound"
+
+        # Verify GET endpoint preserves Sound
+        get_res = client.get(f"/api/v1/traces/{data['id']}")
+        assert get_res.status_code == 200
+        assert get_res.json()["category"] == "Sound"
+
+
+def test_explicit_nature_selection_preserved_when_ai_predicts_sound(client, test_db_repo):
+    """Explicit 'Nature' selection remains 'Nature' even when AI predicts 'Sound'."""
+    ai_result = TraceAIResult(
+        category="Sound",
+        title="Whistling Aspen Leaves",
+        summary="Leaves rustling rhythmically in a gust of autumn wind.",
+        tags=["wind", "leaves", "rustle"],
+        sensory_type="auditory",
+        confidence=0.88,
+    )
+
+    with patch("app.services.trace_service.ai_service.interpret_observation", new_callable=AsyncMock) as mock_ai:
+        mock_ai.return_value = ai_result
+        payload = {
+            "observation": "Dry aspen leaves making a sharp whistling sound in the trees.",
+            "category": "Nature",
+            "latitude": 51.5074,
+            "longitude": -0.1278,
+            "location_mode": "manual",
+        }
+        response = client.post("/api/v1/traces", json=payload)
+        assert response.status_code == 201
+        data = response.json()
+
+        assert data["category"] == "Nature"
+        assert data["title"] == "Whistling Aspen Leaves"
+
+        db_trace = test_db_repo.get_by_id(data["id"])
+        assert db_trace is not None
+        assert db_trace.category == "Nature"
+
+
+def test_audio_attachment_does_not_force_sound_category(client, test_db_repo):
+    """An audio attachment does not force the category to Sound if user selected Nature or Structure."""
+    ai_result = TraceAIResult(
+        category="Nature",
+        title="Stream Recording",
+        summary="A rushing brook tumbling over limestone.",
+        tags=["water", "stream"],
+        sensory_type="auditory",
+        confidence=0.85,
+    )
+
+    with patch("app.services.trace_service.ai_service.interpret_observation", new_callable=AsyncMock) as mock_ai:
+        mock_ai.return_value = ai_result
+        payload = {
+            "observation": "Recording of water running over stones in the woods.",
+            "category": "Nature",
+            "location_mode": "unplaced",
+        }
+        response = client.post("/api/v1/traces", json=payload)
+        assert response.status_code == 201
+        trace_data = response.json()
+
+        # Attach an audio file
+        audio_content = b"ID3\x03\x00\x00\x00\x00\x00\x00" + b"\x00" * 200
+        files = {"file": ("stream.mp3", audio_content, "audio/mpeg")}
+        att_res = client.post(f"/api/v1/traces/{trace_data['id']}/attachments", files=files)
+        assert att_res.status_code == 201
+
+        # Check that the trace category remains Nature despite having an audio attachment
+        get_res = client.get(f"/api/v1/traces/{trace_data['id']}")
+        assert get_res.status_code == 200
+        assert get_res.json()["category"] == "Nature"
+        assert test_db_repo.get_by_id(trace_data["id"]).category == "Nature"
+
+
+def test_automatic_categorization_when_no_category_selected(client, test_db_repo):
+    """When no explicit category is provided, AI prediction acts as the fallback category."""
+    ai_result = TraceAIResult(
+        category="Mystery",
+        title="Odd Carved Mark",
+        summary="An unexplained geometric marking on a curbstone.",
+        tags=["mark", "curb", "mystery"],
+        sensory_type="visual",
+        confidence=0.78,
+    )
+
+    with patch("app.services.trace_service.ai_service.interpret_observation", new_callable=AsyncMock) as mock_ai:
+        mock_ai.return_value = ai_result
+        payload = {
+            "observation": "Found a strange geometric symbol carved into the granite curb.",
+            "location_mode": "unplaced",
+        }
+        response = client.post("/api/v1/traces", json=payload)
+        assert response.status_code == 201
+        data = response.json()
+
+        assert data["category"] == "Mystery"
+        assert test_db_repo.get_by_id(data["id"]).category == "Mystery"
+
+
+def test_persisted_category_matches_api_response_and_query_by_category(client, test_db_repo):
+    """The category returned by the API matches SQLite database and traces list."""
+    ai_result = TraceAIResult(
+        category="Nature",
+        title="Field Sound Observation",
+        summary="Birdsong at dusk.",
+        tags=["birds"],
+        sensory_type="auditory",
+        confidence=0.9,
+    )
+
+    with patch("app.services.trace_service.ai_service.interpret_observation", new_callable=AsyncMock) as mock_ai:
+        mock_ai.return_value = ai_result
+        # User selected Sound
+        payload = {
+            "observation": "Chaffinches singing in the hedges at twilight.",
+            "category": "Sound",
+            "latitude": 51.5,
+            "longitude": -0.1,
+            "location_mode": "gps",
+        }
+        create_res = client.post("/api/v1/traces", json=payload)
+        assert create_res.status_code == 201
+        created = create_res.json()
+        assert created["category"] == "Sound"
+
+        # List all traces
+        list_res = client.get("/api/v1/traces")
+        assert list_res.status_code == 200
+        traces = list_res.json()
+        saved = next(t for t in traces if t["id"] == created["id"])
+        assert saved["category"] == "Sound"
+
+
+def test_unplaced_trace_creation_preserves_selected_category(client, test_db_repo):
+    """Unplaced trace creation preserves user-selected category even with AI divergence."""
+    ai_result = TraceAIResult(
+        category="Nature",
+        title="Unplaced Church Bell Echo",
+        summary="Church bell chiming across the valley.",
+        tags=["bells"],
+        sensory_type="auditory",
+        confidence=0.8,
+    )
+
+    with patch("app.services.trace_service.ai_service.interpret_observation", new_callable=AsyncMock) as mock_ai:
+        mock_ai.return_value = ai_result
+        payload = {
+            "observation": "Church bells ringing three times in the evening air.",
+            "category": "Sound",
+            "location_mode": "unplaced",
+            "latitude": None,
+            "longitude": None,
+        }
+        res = client.post("/api/v1/traces", json=payload)
+        assert res.status_code == 201
+        data = res.json()
+        assert data["category"] == "Sound"
+        assert data["location_mode"] == "unplaced"
+        assert test_db_repo.get_by_id(data["id"]).category == "Sound"
+
+
+def test_ai_unavailable_fallback_preserves_selected_category(client, test_db_repo):
+    """When local AI is unavailable, the user's selected category is preserved alongside fallback metadata."""
+    with patch("app.services.trace_service.ai_service.interpret_observation", new_callable=AsyncMock) as mock_ai:
+        mock_ai.side_effect = AIServiceUnavailableError()
+        payload = {
+            "observation": "Footsteps crunching on frozen gravel in the early morning.",
+            "category": "Sound",
+            "location_mode": "manual",
+            "latitude": 51.5074,
+            "longitude": -0.1278,
+        }
+        res = client.post("/api/v1/traces", json=payload)
+        assert res.status_code == 201
+        data = res.json()
+        assert data["category"] == "Sound"
+        assert test_db_repo.get_by_id(data["id"]).category == "Sound"
+
+
+

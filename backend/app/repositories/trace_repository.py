@@ -183,6 +183,14 @@ class TraceRepository:
             row = cursor.fetchone()
             return int(row[0]) if row else 0
 
+    def get_all_created_timestamps(self) -> List[str]:
+        """Fetch all trace creation timestamps ordered chronologically."""
+        sql = "SELECT created_at FROM traces ORDER BY created_at ASC"
+        with self.db.get_connection() as conn:
+            cursor = conn.execute(sql)
+            rows = cursor.fetchall()
+            return [str(row[0]) for row in rows]
+
 
 default_trace_repository = TraceRepository()
 

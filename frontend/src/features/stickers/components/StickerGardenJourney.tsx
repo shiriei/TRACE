@@ -7,6 +7,8 @@ import {
   StreakSummaryResponse,
 } from '../../../types/sticker';
 import { stickerService } from '../../../services/stickerService';
+import { initCrossTabSync } from '../../../services/crossTabSync';
+import { StickerDetailModal } from './StickerDetailModal';
 
 interface StickerGardenJourneyProps {
   onBackToMap?: () => void;
@@ -30,12 +32,113 @@ const THEME_PALETTES: Record<StickerTheme, { bg: string; border: string; accent:
   planner: { bg: '#eef4f8', border: '#a8cde3', accent: '#2b6589' },
 };
 
+interface StickerCardItemProps {
+  owned: OwnedSticker;
+  onSelect: (owned: OwnedSticker) => void;
+}
+
+export const StickerCardItem: React.FC<StickerCardItemProps> = ({ owned, onSelect }) => {
+  const [imageError, setImageError] = useState(false);
+  const def = owned.sticker;
+  const palette = THEME_PALETTES[def.theme] || THEME_PALETTES.botanical;
+
+  // Reset fallback state when the displayed sticker or image URL changes
+  useEffect(() => {
+    setImageError(false);
+  }, [def.id, def.asset_path]);
+
+  const handleImageError = () => {
+    if (!imageError) {
+      setImageError(true);
+    }
+  };
+
+  const shouldShowImage = def.is_asset_available && !imageError;
+
+  return (
+    <div
+      className="sticker-card"
+      style={{
+        backgroundColor: palette.bg,
+        borderColor: palette.border,
+      }}
+      role="button"
+      tabIndex={0}
+      aria-haspopup="dialog"
+      aria-label={`Inspect ${def.name} details and field specimen`}
+      onClick={() => onSelect(owned)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onSelect(owned);
+        }
+      }}
+    >
+      {/* Sticker Artwork / Intentional Journal Stamp Placeholder */}
+      <div className="sticker-card-art-frame">
+        {shouldShowImage ? (
+          <img
+            src={`/${def.asset_path}`}
+            alt={def.name}
+            className="sticker-card-img"
+            loading="lazy"
+            onError={handleImageError}
+          />
+        ) : (
+          <div className="sticker-journal-stamp" style={{ borderColor: palette.accent }}>
+            <span className="stamp-icon" aria-hidden="true">
+              {THEME_LABELS[def.theme]?.icon || '🌿'}
+            </span>
+            <span className="stamp-theme-label" style={{ color: palette.accent }}>
+              {THEME_LABELS[def.theme]?.label || def.theme}
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* Sticker Metadata */}
+      <div className="sticker-card-content">
+        <div className="sticker-rarity-row">
+          <span className={`sticker-rarity-pill sticker-rarity--${def.rarity}`}>
+            {def.rarity}
+          </span>
+          <span className="sticker-source-pill">
+            {owned.source === 'daily_reward'
+              ? 'Daily Reward'
+              : owned.source === 'milestone_reward'
+              ? 'Milestone'
+              : 'Awarded'}
+          </span>
+        </div>
+
+        <h4 className="sticker-card-name" title={def.name}>{def.name}</h4>
+        <p className="sticker-card-caption" title={def.description}>“{def.description}”</p>
+
+        <div className="sticker-card-earned-date">
+          Earned{' '}
+          {new Date(owned.unlocked_at).toLocaleDateString(undefined, {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric',
+          })}
+        </div>
+
+        <div className="sticker-card-inspect-hint" aria-hidden="true">
+          <span>Inspect sticker</span>
+          <span>→</span>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export const StickerGardenJourney: React.FC<StickerGardenJourneyProps> = ({ onBackToMap }) => {
   const [streakSummary, setStreakSummary] = useState<StreakSummaryResponse | null>(null);
   const [collection, setCollection] = useState<OwnedSticker[]>([]);
   const [catalogue, setCatalogue] = useState<StickerDefinition[]>([]);
   const [packs, setPacks] = useState<StickerPackDefinition[]>([]);
   const [activeThemeFilter, setActiveThemeFilter] = useState<string>('all');
+  const [selectedSticker, setSelectedSticker] = useState<OwnedSticker | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -64,6 +167,9 @@ export const StickerGardenJourney: React.FC<StickerGardenJourneyProps> = ({ onBa
   useEffect(() => {
     loadData();
 
+    // Ensure cross-tab sync channel is initialized
+    const cleanupSync = initCrossTabSync();
+
     // Refresh if a new trace is recorded in another tab or view
     const handleTraceSaved = () => {
       loadData();
@@ -71,6 +177,7 @@ export const StickerGardenJourney: React.FC<StickerGardenJourneyProps> = ({ onBa
     window.addEventListener('trace:saved', handleTraceSaved);
     return () => {
       window.removeEventListener('trace:saved', handleTraceSaved);
+      cleanupSync();
     };
   }, [loadData]);
 
@@ -292,65 +399,13 @@ export const StickerGardenJourney: React.FC<StickerGardenJourneyProps> = ({ onBa
           </div>
         ) : (
           <div className="sticker-grid">
-            {filteredCollection.map((owned) => {
-              const def = owned.sticker;
-              const palette = THEME_PALETTES[def.theme] || THEME_PALETTES.botanical;
-
-              return (
-                <div
-                  key={owned.id}
-                  className="sticker-card"
-                  style={{
-                    backgroundColor: palette.bg,
-                    borderColor: palette.border,
-                  }}
-                >
-                  {/* Sticker Artwork / Intentional Journal Stamp Placeholder */}
-                  <div className="sticker-card-art-frame">
-                    {def.is_asset_available ? (
-                      <img
-                        src={`/${def.asset_path}`}
-                        alt={def.name}
-                        className="sticker-card-img"
-                        loading="lazy"
-                      />
-                    ) : (
-                      <div className="sticker-journal-stamp" style={{ borderColor: palette.accent }}>
-                        <span className="stamp-icon" aria-hidden="true">
-                          {THEME_LABELS[def.theme]?.icon || '🌿'}
-                        </span>
-                        <span className="stamp-theme-label" style={{ color: palette.accent }}>
-                          {THEME_LABELS[def.theme]?.label || def.theme}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Sticker Metadata */}
-                  <div className="sticker-card-content">
-                    <div className="sticker-rarity-row">
-                      <span className={`sticker-rarity-pill sticker-rarity--${def.rarity}`}>
-                        {def.rarity}
-                      </span>
-                      <span className="sticker-source-pill">
-                        {owned.source === 'daily_reward'
-                          ? 'Daily Reward'
-                          : owned.source === 'milestone_reward'
-                          ? 'Milestone'
-                          : 'Awarded'}
-                      </span>
-                    </div>
-
-                    <h4 className="sticker-card-name">{def.name}</h4>
-                    <p className="sticker-card-caption">“{def.description}”</p>
-
-                    <div className="sticker-card-earned-date">
-                      Earned {new Date(owned.unlocked_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+            {filteredCollection.map((owned) => (
+              <StickerCardItem
+                key={owned.id}
+                owned={owned}
+                onSelect={setSelectedSticker}
+              />
+            ))}
           </div>
         )}
       </section>
@@ -475,6 +530,13 @@ export const StickerGardenJourney: React.FC<StickerGardenJourneyProps> = ({ onBa
           })}
         </div>
       </section>
+
+      {/* Detail Modal for Selected Sticker */}
+      <StickerDetailModal
+        isOpen={Boolean(selectedSticker)}
+        onClose={() => setSelectedSticker(null)}
+        owned={selectedSticker}
+      />
     </div>
   );
 };

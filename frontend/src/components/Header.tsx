@@ -3,16 +3,12 @@ import { useStreak } from '../hooks/useStreak';
 import { StreakIndicator } from './StreakIndicator';
 
 interface HeaderProps {
-  isConnected: boolean;
-  isLoading: boolean;
   activeView: 'map' | 'overview';
   onViewChange: (view: 'map' | 'overview') => void;
   onOpenStickers?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
-  isConnected,
-  isLoading,
   activeView,
   onViewChange,
   onOpenStickers,
@@ -55,25 +51,6 @@ export const Header: React.FC<HeaderProps> = ({
           todayQualified={streakSummary?.today_qualified ?? false}
           onClick={onOpenStickers}
         />
-        <button
-          type="button"
-          className="avatar"
-          aria-label="Your profile"
-          title={isLoading ? 'Checking backend...' : isConnected ? 'Local backend connected' : 'Backend offline'}
-        >
-          <svg
-            width="26"
-            height="26"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="#2c4a3f"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-          >
-            <circle cx="12" cy="8" r="4" />
-            <path d="M4 21c1-5 5-7 8-7s7 2 8 7" />
-          </svg>
-        </button>
       </div>
     </header>
   );

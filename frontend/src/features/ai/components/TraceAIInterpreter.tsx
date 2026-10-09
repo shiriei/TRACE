@@ -1,20 +1,28 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { TraceAIResult } from '../../../types';
+import { TraceAIResult, TraceCategory, TRACE_CATEGORIES } from '../../../types';
 import { interpretTraceObservation, TraceAIError } from '../../../services/api';
 
 const DEFAULT_SAMPLE = 'I noticed moss growing between bricks near a drain.';
 
 interface TraceAIInterpreterProps {
+  initialCategory?: TraceCategory | null;
   onTraceReady?: (data: {
     observation: string;
     result?: TraceAIResult | null;
     photoFile?: File | null;
     audioFile?: File | null;
+    selectedCategory?: TraceCategory | null;
   }) => void;
 }
 
-export const TraceAIInterpreter: React.FC<TraceAIInterpreterProps> = ({ onTraceReady }) => {
+export const TraceAIInterpreter: React.FC<TraceAIInterpreterProps> = ({
+  initialCategory,
+  onTraceReady,
+}) => {
   const [observation, setObservation] = useState(DEFAULT_SAMPLE);
+  const [selectedCategory, setSelectedCategory] = useState<TraceCategory | null>(
+    initialCategory || null
+  );
   const [isLoading, setIsLoading] = useState(false);
   const [result, setResult] = useState<TraceAIResult | null>(null);
   const [errorInfo, setErrorInfo] = useState<{ title: string; message: string } | null>(null);
@@ -39,6 +47,13 @@ export const TraceAIInterpreter: React.FC<TraceAIInterpreterProps> = ({ onTraceR
       if (audioPreviewUrl) URL.revokeObjectURL(audioPreviewUrl);
     };
   }, [photoPreviewUrl, audioPreviewUrl]);
+
+  // Sync initialCategory when changed externally
+  useEffect(() => {
+    if (initialCategory !== undefined) {
+      setSelectedCategory(initialCategory);
+    }
+  }, [initialCategory]);
 
   const handleChoosePhoto = () => {
     photoInputRef.current?.click();
@@ -115,11 +130,13 @@ export const TraceAIInterpreter: React.FC<TraceAIInterpreterProps> = ({ onTraceR
   const handlePlaceOnMap = () => {
     if (isPlacingRef.current || !onTraceReady) return;
     isPlacingRef.current = true;
+    const effectiveCategory = selectedCategory || (result ? result.category : 'Personal');
     onTraceReady({
       observation,
-      result,
+      result: result ? { ...result, category: effectiveCategory } : null,
       photoFile,
       audioFile,
+      selectedCategory,
     });
     setTimeout(() => {
       isPlacingRef.current = false;
@@ -163,6 +180,48 @@ export const TraceAIInterpreter: React.FC<TraceAIInterpreterProps> = ({ onTraceR
   return (
     <div className="ai-interpreter-card paper" id="ai-interpreter">
       <form onSubmit={handleInterpret} className="ai-interpreter-form">
+        {/* Category Lens Selection */}
+        <div className="ai-category-select-group">
+          <div className="ai-category-select-header">
+            <span className="ai-category-select-label">Category lens</span>
+            {selectedCategory ? (
+              <button
+                type="button"
+                className="ai-category-clear-btn"
+                onClick={() => setSelectedCategory(null)}
+                title="Clear selected category to let AI classify automatically"
+              >
+                Reset to Auto-detect
+              </button>
+            ) : (
+              <span className="ai-category-hint">Auto-detecting via local AI</span>
+            )}
+          </div>
+          <div className="ai-category-chips" role="radiogroup" aria-label="Select trace category lens">
+            {TRACE_CATEGORIES.map((cat) => {
+              const isSelected = selectedCategory === cat;
+              return (
+                <button
+                  key={cat}
+                  type="button"
+                  role="radio"
+                  aria-checked={isSelected}
+                  className={`ai-category-chip ${isSelected ? 'ai-category-chip--selected' : ''}`}
+                  style={{
+                    borderColor: isSelected ? getCategoryColor(cat) : undefined,
+                    color: isSelected ? getCategoryColor(cat) : undefined,
+                  }}
+                  onClick={() => setSelectedCategory(isSelected ? null : cat)}
+                  title={isSelected ? `Selected: ${cat} (click to deselect)` : `Select ${cat}`}
+                >
+                  <span className="ai-category-chip-icon">{getCategoryEmoji(cat)}</span>
+                  <span className="ai-category-chip-name">{cat}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         <label htmlFor="observation-input" className="ai-input-label">
           What did you notice?
         </label>
@@ -331,6 +390,7 @@ export const TraceAIInterpreter: React.FC<TraceAIInterpreterProps> = ({ onTraceR
                       result: null,
                       photoFile,
                       audioFile,
+                      selectedCategory,
                     })
                   }
                   style={{ fontSize: '1rem', padding: '6px 14px' }}
@@ -344,40 +404,47 @@ export const TraceAIInterpreter: React.FC<TraceAIInterpreterProps> = ({ onTraceR
       )}
 
       {/* Successful Result Display */}
-      {result && !isLoading && (
-        <div className="ai-result-card" style={{ borderColor: getCategoryColor(result.category) }}>
-          <div className="ai-result-category" style={{ color: getCategoryColor(result.category) }}>
-            <span className="ai-result-cat-icon">{getCategoryEmoji(result.category)}</span>
-            <span className="ai-result-cat-name">{result.category}</span>
+      {result && !isLoading && (() => {
+        const displayCategory = selectedCategory || result.category;
+        const isUserSelected = !!selectedCategory;
+        return (
+          <div className="ai-result-card" style={{ borderColor: getCategoryColor(displayCategory) }}>
+            <div className="ai-result-category" style={{ color: getCategoryColor(displayCategory) }}>
+              <span className="ai-result-cat-icon">{getCategoryEmoji(displayCategory)}</span>
+              <span className="ai-result-cat-name">{displayCategory}</span>
+              {isUserSelected && (
+                <span className="ai-result-selected-tag">Selected</span>
+              )}
+            </div>
+
+            <h4 className="ai-result-title">{result.title}</h4>
+            <p className="ai-result-summary">{result.summary}</p>
+
+            {result.tags && result.tags.length > 0 && (
+              <div className="ai-result-tags">
+                {result.tags.map((tag) => (
+                  <span key={tag} className="ai-result-tag">
+                    #{tag}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {onTraceReady && (
+              <div style={{ marginTop: '1rem', textAlign: 'right' }}>
+                <button
+                  type="button"
+                  className="cta"
+                  onClick={handlePlaceOnMap}
+                  style={{ fontSize: '1.05rem', padding: '8px 16px' }}
+                >
+                  Place on Map &rarr;
+                </button>
+              </div>
+            )}
           </div>
-
-          <h4 className="ai-result-title">{result.title}</h4>
-          <p className="ai-result-summary">{result.summary}</p>
-
-          {result.tags && result.tags.length > 0 && (
-            <div className="ai-result-tags">
-              {result.tags.map((tag) => (
-                <span key={tag} className="ai-result-tag">
-                  #{tag}
-                </span>
-              ))}
-            </div>
-          )}
-
-          {onTraceReady && (
-            <div style={{ marginTop: '1rem', textAlign: 'right' }}>
-              <button
-                type="button"
-                className="cta"
-                onClick={handlePlaceOnMap}
-                style={{ fontSize: '1.05rem', padding: '8px 16px' }}
-              >
-                Place on Map &rarr;
-              </button>
-            </div>
-          )}
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 };

@@ -3,6 +3,7 @@ from typing import List, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.ai.schemas import SensoryType, TraceCategory
+from app.schemas.sticker import StreakEvaluationResult
 
 LocationMode = Literal["gps", "manual", "unplaced"]
 
@@ -67,6 +68,10 @@ class TraceCreate(BaseModel):
         max_length=500,
         description="Optional local filesystem path to associated audio recording.",
     )
+    tz_offset_minutes: Optional[int] = Field(
+        default=None,
+        description="Optional client timezone offset in minutes from UTC (JS getTimezoneOffset()).",
+    )
 
     @field_validator("observation")
     @classmethod
@@ -126,6 +131,10 @@ class TraceResponse(BaseModel):
     created_at: str = Field(..., description="ISO 8601 creation timestamp.")
     photo_path: Optional[str] = Field(default=None, description="Path to local photo, if any.")
     audio_path: Optional[str] = Field(default=None, description="Path to local audio, if any.")
+    reward: Optional[StreakEvaluationResult] = Field(
+        default=None,
+        description="Exploration reward evaluation result triggered by this trace.",
+    )
 
     model_config = ConfigDict(from_attributes=True)
 

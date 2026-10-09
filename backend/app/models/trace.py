@@ -21,3 +21,4 @@ class TraceModel:
     created_at: str = ""
     photo_path: Optional[str] = None
     audio_path: Optional[str] = None
+    reward: Optional[object] = None

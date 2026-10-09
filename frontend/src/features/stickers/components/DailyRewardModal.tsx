@@ -1,14 +1,15 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { OwnedSticker, StickerPackDefinition } from '../../../types/sticker';
 
 export interface DailyRewardModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSeeCollection: () => void;
-  awardedSticker: OwnedSticker;
+  awardedSticker?: OwnedSticker | null;
   streak: number;
   longestStreak?: number;
   milestonesUnlocked?: StickerPackDefinition[];
+  isPoolExhausted?: boolean;
 }
 
 const THEME_LABELS: Record<string, { label: string; icon: string }> = {
@@ -37,8 +38,27 @@ export const DailyRewardModal: React.FC<DailyRewardModalProps> = ({
   streak,
   longestStreak = 0,
   milestonesUnlocked = [],
+  isPoolExhausted = false,
 }) => {
   const primaryBtnRef = useRef<HTMLButtonElement>(null);
+  const [imageError, setImageError] = useState(false);
+
+  const stickerId = awardedSticker?.sticker?.id;
+  const stickerAssetPath = awardedSticker?.sticker?.asset_path;
+
+  // Reset fallback state when the displayed sticker or image URL changes
+  useEffect(() => {
+    setImageError(false);
+  }, [stickerId, stickerAssetPath]);
+
+  const handleImageError = () => {
+    if (!imageError) {
+      setImageError(true);
+    }
+  };
+
+  const hasDailySticker = Boolean(awardedSticker);
+  const hasMilestones = milestonesUnlocked && milestonesUnlocked.length > 0;
 
   // Keyboard navigation: Escape key closes modal, autofocus primary button
   useEffect(() => {
@@ -58,15 +78,17 @@ export const DailyRewardModal: React.FC<DailyRewardModalProps> = ({
     };
   }, [isOpen, onClose]);
 
-  if (!isOpen || !awardedSticker) return null;
-
-  const sticker = awardedSticker.sticker;
-  const theme = sticker.theme || 'botanical';
-  const palette = THEME_PALETTES[theme] || THEME_PALETTES.botanical;
-  const themeMeta = THEME_LABELS[theme] || { label: theme, icon: '🌿' };
+  if (!isOpen) return null;
+  if (!hasDailySticker && !hasMilestones && !isPoolExhausted) return null;
 
   // Context-aware celebratory heading
   const getCelebrationTitle = () => {
+    if (!hasDailySticker && hasMilestones) {
+      return 'Milestone Pack Unlocked!';
+    }
+    if (isPoolExhausted && !hasDailySticker) {
+      return 'Streak extended!';
+    }
     if (streak > 1) {
       return 'Your streak is growing!';
     }
@@ -77,6 +99,12 @@ export const DailyRewardModal: React.FC<DailyRewardModalProps> = ({
   };
 
   const getSubheading = () => {
+    if (!hasDailySticker && hasMilestones) {
+      return `Day ${streak} milestone achieved! You’ve unlocked a commemorative collection.`;
+    }
+    if (isPoolExhausted && !hasDailySticker) {
+      return `Day ${streak} completed! You’re keeping your daily exploration habit alive.`;
+    }
     if (streak > 1) {
       return `Day ${streak} completed! You’re noticing the real world one discovery at a time.`;
     }
@@ -149,55 +177,106 @@ export const DailyRewardModal: React.FC<DailyRewardModalProps> = ({
           <p className="reward-modal-subheading">{getSubheading()}</p>
         </div>
 
-        {/* Sticker Reveal Card */}
-        <div
-          className="reward-sticker-card"
-          style={{
-            backgroundColor: palette.bg,
-            borderColor: palette.border,
-          }}
-        >
-          <div className="reward-sticker-art-wrap">
-            {sticker.is_asset_available ? (
-              <img
-                src={`/${sticker.asset_path}`}
-                alt={sticker.name}
-                className="reward-sticker-img"
-              />
-            ) : (
-              <div
-                className="reward-stamp-placeholder"
-                style={{ borderColor: palette.accent }}
-              >
-                <span className="reward-stamp-emoji" aria-hidden="true">
-                  {themeMeta.icon}
+        {/* Case 1: Daily Sticker Awarded */}
+        {awardedSticker && (
+          <div
+            className="reward-sticker-card"
+            style={{
+              backgroundColor: (THEME_PALETTES[awardedSticker.sticker.theme] || THEME_PALETTES.botanical).bg,
+              borderColor: (THEME_PALETTES[awardedSticker.sticker.theme] || THEME_PALETTES.botanical).border,
+            }}
+          >
+            <div className="reward-sticker-art-wrap">
+              {awardedSticker.sticker.is_asset_available && !imageError ? (
+                <img
+                  src={`/${awardedSticker.sticker.asset_path}`}
+                  alt={awardedSticker.sticker.name}
+                  className="reward-sticker-img"
+                  onError={handleImageError}
+                />
+              ) : (
+                <div
+                  className="reward-stamp-placeholder"
+                  style={{
+                    borderColor: (THEME_PALETTES[awardedSticker.sticker.theme] || THEME_PALETTES.botanical).accent,
+                  }}
+                >
+                  <span className="reward-stamp-emoji" aria-hidden="true">
+                    {(THEME_LABELS[awardedSticker.sticker.theme] || { icon: '🌿' }).icon}
+                  </span>
+                  <span
+                    className="reward-stamp-theme"
+                    style={{
+                      color: (THEME_PALETTES[awardedSticker.sticker.theme] || THEME_PALETTES.botanical).accent,
+                    }}
+                  >
+                    {(THEME_LABELS[awardedSticker.sticker.theme] || { label: awardedSticker.sticker.theme }).label}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            <div className="reward-sticker-details">
+              <div className="reward-sticker-rarity-row">
+                <span className={`reward-rarity-pill reward-rarity--${awardedSticker.sticker.rarity}`}>
+                  {awardedSticker.sticker.rarity}
                 </span>
-                <span className="reward-stamp-theme" style={{ color: palette.accent }}>
-                  {themeMeta.label}
-                </span>
+                <span className="reward-source-tag">Daily Reward</span>
               </div>
-            )}
-          </div>
 
-          <div className="reward-sticker-details">
-            <div className="reward-sticker-rarity-row">
-              <span className={`reward-rarity-pill reward-rarity--${sticker.rarity}`}>
-                {sticker.rarity}
-              </span>
-              <span className="reward-source-tag">Daily Reward</span>
-            </div>
+              <h3 className="reward-sticker-name">{awardedSticker.sticker.name}</h3>
+              <p className="reward-sticker-caption">“{awardedSticker.sticker.description}”</p>
 
-            <h3 className="reward-sticker-name">{sticker.name}</h3>
-            <p className="reward-sticker-caption">“{sticker.description}”</p>
-
-            <div className="reward-confirmed-message" role="status">
-              <span className="confirmed-check" aria-hidden="true">✓</span> Added to your Sticker Journal
+              <div className="reward-confirmed-message" role="status">
+                <span className="confirmed-check" aria-hidden="true">✓</span> Added to your Sticker Journal
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
-        {/* Milestone Unlocks (if achieved on this trace) */}
-        {milestonesUnlocked.length > 0 && (
+        {/* Case 2: Milestone Pack Unlocked as Primary Content (when no daily sticker awarded) */}
+        {!hasDailySticker && hasMilestones && (
+          <div className="reward-milestone-primary-card">
+            {milestonesUnlocked.map((pack) => {
+              const threshold = pack.milestone_requirement?.threshold || streak;
+              return (
+                <div key={pack.id} className="reward-milestone-pack-box">
+                  <div className="reward-milestone-badge-row">
+                    <span className="reward-milestone-tag">{threshold}-Day Milestone Pack</span>
+                    <span className="reward-milestone-count-pill">{pack.sticker_ids.length} Stickers</span>
+                  </div>
+                  <h3 className="reward-milestone-name">{pack.name}</h3>
+                  <p className="reward-milestone-desc">“{pack.description}”</p>
+                  <div className="reward-confirmed-message" role="status">
+                    <span className="confirmed-check" aria-hidden="true">✓</span> Added to your Sticker Journal
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Case 3: Streak Extended When Starter Sticker Pool is Exhausted */}
+        {!hasDailySticker && isPoolExhausted && !hasMilestones && (
+          <div className="reward-pool-exhausted-card">
+            <div className="reward-pool-exhausted-icon-wrap" aria-hidden="true">
+              <span className="reward-pool-exhausted-emoji">🏆</span>
+            </div>
+            <div className="reward-pool-exhausted-content">
+              <div className="reward-pool-exhausted-badge">Master Collector • Day {streak} Streak</div>
+              <h3 className="reward-pool-exhausted-title">All Starter Stickers Collected!</h3>
+              <p className="reward-pool-exhausted-desc">
+                You have discovered and collected every daily starter sticker in this edition of TRACE.
+              </p>
+              <p className="reward-pool-exhausted-note">
+                Your exploration habit is going strong! Keep exploring daily to unlock commemorative milestone packs.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Milestone Unlocks Banner (shown alongside daily sticker or pool-exhausted streak) */}
+        {hasDailySticker && hasMilestones && (
           <div className="reward-milestone-unlocked-banner">
             <div className="milestone-unlocked-title">
               <span aria-hidden="true">🏆</span> Milestone Pack Unlocked!
@@ -232,3 +311,4 @@ export const DailyRewardModal: React.FC<DailyRewardModalProps> = ({
     </div>
   );
 };
+
